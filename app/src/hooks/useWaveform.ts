@@ -1,8 +1,15 @@
 import { useState, useCallback, useRef } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, ToolMode } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcTerm, ToolMode } from '@/types/waveform';
 import type { WaveformType } from '@/components/WaveformGenerator';
 
-const generateId = () => Math.random().toString(36).substr(2, 9);
+const generateId = () => Math.random().toString(36).slice(2, 11);
+
+// 基准缩放：100% 时每个世界单位对应的像素数
+export const BASE_SCALE = 40;
+export const MIN_SCALE = BASE_SCALE * 0.1;  // 10%
+export const MAX_SCALE = BASE_SCALE * 10;   // 1000%
+
+const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scale: BASE_SCALE };
 
 const COLORS = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -46,12 +53,9 @@ export function useWaveform() {
     yGridSize: 0.5,
     xMajorGridSize: 2,   // 主格点（显示数字）
     yMajorGridSize: 2,
-    xMin: -10,
-    xMax: 10,
-    yMin: -5,
-    yMax: 5,
-    zoom: 1,             // 缩放比例
   });
+  // 无限画布视口（平移中心 + 缩放）
+  const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
   const [mode, setMode] = useState<ToolMode>('draw');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
@@ -121,51 +125,21 @@ export function useWaveform() {
     }
   }, [updateHistoryState]);
 
-  // 获取缩放后的坐标范围
-  const getZoomedRange = useCallback(() => {
-    const zoom = axisConfig.zoom || 1;
-    const xCenter = (axisConfig.xMin + axisConfig.xMax) / 2;
-    const yCenter = (axisConfig.yMin + axisConfig.yMax) / 2;
-    const xHalfRange = (axisConfig.xMax - axisConfig.xMin) / 2 / zoom;
-    const yHalfRange = (axisConfig.yMax - axisConfig.yMin) / 2 / zoom;
-    
-    return {
-      xMin: xCenter - xHalfRange,
-      xMax: xCenter + xHalfRange,
-      yMin: yCenter - yHalfRange,
-      yMax: yCenter + yHalfRange,
-    };
-  }, [axisConfig]);
-
-  // 坐标转换：世界坐标 -> 屏幕坐标
+  // 坐标转换：世界坐标 -> 屏幕坐标（以视口中心为基准）
   const worldToScreen = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
-    const padding = 60;
-    const width = canvas.width - 2 * padding;
-    const height = canvas.height - 2 * padding;
-    const range = getZoomedRange();
-    const xRange = range.xMax - range.xMin;
-    const yRange = range.yMax - range.yMin;
-    
     return {
-      x: padding + ((point.x - range.xMin) / xRange) * width,
-      y: canvas.height - padding - ((point.y - range.yMin) / yRange) * height,
+      x: canvas.width / 2 + (point.x - viewport.centerX) * viewport.scale,
+      y: canvas.height / 2 - (point.y - viewport.centerY) * viewport.scale,
     };
-  }, [getZoomedRange]);
+  }, [viewport]);
 
   // 坐标转换：屏幕坐标 -> 世界坐标
   const screenToWorld = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
-    const padding = 60;
-    const width = canvas.width - 2 * padding;
-    const height = canvas.height - 2 * padding;
-    const range = getZoomedRange();
-    const xRange = range.xMax - range.xMin;
-    const yRange = range.yMax - range.yMin;
-    
     return {
-      x: range.xMin + ((point.x - padding) / width) * xRange,
-      y: range.yMin + ((canvas.height - padding - point.y) / height) * yRange,
+      x: viewport.centerX + (point.x - canvas.width / 2) / viewport.scale,
+      y: viewport.centerY - (point.y - canvas.height / 2) / viewport.scale,
     };
-  }, [getZoomedRange]);
+  }, [viewport]);
 
   // 吸附到格点
   const snapToGrid = useCallback((point: Point): Point => {
@@ -430,52 +404,51 @@ export function useWaveform() {
     ));
   }, []);
 
-  // 波形加减操作（支持多个波形）
-  const calculateWaveforms = useCallback((expression: string, groupIds: string[], operators: ('+' | '-')[]) => {
-    if (groupIds.length === 0) return;
+  // 波形运算（加减 + 每项可乘常数系数，如 A×2 - B×0.5）
+  const calculateWaveforms = useCallback((expression: string, terms: CalcTerm[], operators: ('+' | '-')[]) => {
+    if (terms.length === 0) return;
 
-    // 获取所有组的点数据
-    const groupPoints: { id: string; name: string; points: Point[] }[] = [];
-    
-    for (const groupId of groupIds) {
-      const group = groups.find(g => g.id === groupId);
-      if (!group) continue;
-      
+    // 获取每一项的点数据和系数
+    const termPoints: { scale: number; points: Point[] }[] = [];
+
+    for (const term of terms) {
+      const group = groups.find(g => g.id === term.groupId);
+      if (!group) return; // 组已被删除，项与运算符会错位，直接放弃
+
       const groupSegments = segments.filter(s => group.segments.includes(s.id));
       const points: Point[] = [];
-      
+
       groupSegments.forEach(s => {
         points.push(s.start, s.end);
         if (s.control) points.push(s.control);
       });
-      
-      groupPoints.push({ id: groupId, name: group.name, points });
-    }
 
-    if (groupPoints.length === 0) return;
+      termPoints.push({ scale: term.scale, points });
+    }
 
     // 收集所有x坐标
     const allX = new Set<number>();
-    groupPoints.forEach(gp => {
-      gp.points.forEach(p => allX.add(p.x));
+    termPoints.forEach(tp => {
+      tp.points.forEach(p => allX.add(p.x));
     });
+    if (allX.size < 2) return;
 
     // 计算每个x位置的结果
     const resultPoints: Point[] = [];
-    
+
     allX.forEach(x => {
-      let resultY = interpolateY(x, groupPoints[0].points);
-      
+      let resultY = interpolateY(x, termPoints[0].points) * termPoints[0].scale;
+
       // 依次应用运算符
       for (let i = 0; i < operators.length; i++) {
-        const nextY = interpolateY(x, groupPoints[i + 1].points);
+        const nextY = interpolateY(x, termPoints[i + 1].points) * termPoints[i + 1].scale;
         if (operators[i] === '+') {
           resultY += nextY;
         } else {
           resultY -= nextY;
         }
       }
-      
+
       resultPoints.push({ x, y: resultY });
     });
 
@@ -780,18 +753,46 @@ export function useWaveform() {
     setSelectedSegments(new Set());
   }, [saveToHistory]);
 
-  // 导出为SVG
-  const exportToSVG = useCallback((width: number = 800, height: number = 500): string => {
+  // 导出为SVG（范围自动取可见波形的包围盒，向外对齐到主格点）
+  const exportToSVG = useCallback((): string => {
     const padding = 60;
+
+    // 计算可见线段的包围盒
+    const visibleSegments = segments.filter(s => {
+      const g = groups.find(g => g.id === s.groupId);
+      return !g || g.visible;
+    });
+
+    let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // 无波形时的默认范围
+    if (visibleSegments.length > 0) {
+      xMin = Infinity; xMax = -Infinity; yMin = Infinity; yMax = -Infinity;
+      visibleSegments.forEach(s => {
+        const pts = s.control ? [s.start, s.end, s.control] : [s.start, s.end];
+        pts.forEach(p => {
+          xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x);
+          yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
+        });
+      });
+      // 向外对齐到主格点，并各留一格空隙
+      xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
+      xMax = (Math.ceil(xMax / axisConfig.xMajorGridSize) + 1) * axisConfig.xMajorGridSize;
+      yMin = (Math.floor(yMin / axisConfig.yMajorGridSize) - 1) * axisConfig.yMajorGridSize;
+      yMax = (Math.ceil(yMax / axisConfig.yMajorGridSize) + 1) * axisConfig.yMajorGridSize;
+    }
+
+    const xRange = xMax - xMin;
+    const yRange = yMax - yMin;
+    // 每世界单位像素数：默认40，范围太大时压缩，保证导出图不超过约2000px
+    const pxPerUnit = Math.min(40, 1880 / xRange, 1880 / yRange);
+    const width = Math.round(2 * padding + xRange * pxPerUnit);
+    const height = Math.round(2 * padding + yRange * pxPerUnit);
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
-    const xRange = axisConfig.xMax - axisConfig.xMin;
-    const yRange = axisConfig.yMax - axisConfig.yMin;
 
     // 坐标转换函数
     const worldToSVG = (point: Point): Point => ({
-      x: padding + ((point.x - axisConfig.xMin) / xRange) * chartWidth,
-      y: height - padding - ((point.y - axisConfig.yMin) / yRange) * chartHeight,
+      x: padding + ((point.x - xMin) / xRange) * chartWidth,
+      y: height - padding - ((point.y - yMin) / yRange) * chartHeight,
     });
 
     // 生成SVG路径
@@ -828,86 +829,99 @@ export function useWaveform() {
   <g class="grid-minor">
 `;
 
+    // 用整数索引循环避免浮点累加误差
+    const isMajor = (v: number, major: number) =>
+      Math.abs(v / major - Math.round(v / major)) < 1e-6;
+
     // 垂直次网格线
-    const xStart = Math.ceil(axisConfig.xMin / axisConfig.xGridSize) * axisConfig.xGridSize;
-    for (let x = xStart; x <= axisConfig.xMax; x += axisConfig.xGridSize) {
-      if (Math.abs(x % axisConfig.xMajorGridSize) < 0.001) continue;
+    for (let i = Math.ceil(xMin / axisConfig.xGridSize); i * axisConfig.xGridSize <= xMax + 1e-9; i++) {
+      const x = i * axisConfig.xGridSize;
+      if (isMajor(x, axisConfig.xMajorGridSize)) continue;
       const screenX = worldToSVG({ x, y: 0 }).x;
       svg += `    <line class="grid-line-minor" x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
     // 水平次网格线
-    const yStart = Math.ceil(axisConfig.yMin / axisConfig.yGridSize) * axisConfig.yGridSize;
-    for (let y = yStart; y <= axisConfig.yMax; y += axisConfig.yGridSize) {
-      if (Math.abs(y % axisConfig.yMajorGridSize) < 0.001) continue;
+    for (let i = Math.ceil(yMin / axisConfig.yGridSize); i * axisConfig.yGridSize <= yMax + 1e-9; i++) {
+      const y = i * axisConfig.yGridSize;
+      if (isMajor(y, axisConfig.yMajorGridSize)) continue;
       const screenY = worldToSVG({ x: 0, y }).y;
       svg += `    <line class="grid-line-minor" x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
     }
 
     svg += `  </g>
-  
+
   <!-- 主网格线 -->
   <g class="grid-major">
 `;
 
     // 垂直主网格线
-    const xMajorStart = Math.ceil(axisConfig.xMin / axisConfig.xMajorGridSize) * axisConfig.xMajorGridSize;
-    for (let x = xMajorStart; x <= axisConfig.xMax; x += axisConfig.xMajorGridSize) {
-      const screenX = worldToSVG({ x, y: 0 }).x;
+    const xMajorIndexStart = Math.ceil(xMin / axisConfig.xMajorGridSize);
+    const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
+    for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
+      const screenX = worldToSVG({ x: i * axisConfig.xMajorGridSize, y: 0 }).x;
       svg += `    <line class="grid-line-major" x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
     // 水平主网格线
-    const yMajorStart = Math.ceil(axisConfig.yMin / axisConfig.yMajorGridSize) * axisConfig.yMajorGridSize;
-    for (let y = yMajorStart; y <= axisConfig.yMax; y += axisConfig.yMajorGridSize) {
-      const screenY = worldToSVG({ x: 0, y }).y;
+    const yMajorIndexStart = Math.ceil(yMin / axisConfig.yMajorGridSize);
+    const yMajorIndexEnd = Math.floor(yMax / axisConfig.yMajorGridSize + 1e-9);
+    for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
+      const screenY = worldToSVG({ x: 0, y: i * axisConfig.yMajorGridSize }).y;
       svg += `    <line class="grid-line-major" x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
     }
 
     svg += `  </g>
-  
+
   <!-- 坐标轴 -->
   <g class="axes">
 `;
 
-    // X轴
-    const originY = worldToSVG({ x: 0, y: 0 }).y;
-    svg += `    <line class="axis-line" x1="${padding}" y1="${originY.toFixed(2)}" x2="${width - padding}" y2="${originY.toFixed(2)}"/>\n`;
+    // 坐标轴只在原点落在范围内时绘制；不在范围内时刻度标签贴边显示
+    const hasXAxis = yMin <= 0 && yMax >= 0;
+    const hasYAxis = xMin <= 0 && xMax >= 0;
+    const originY = hasXAxis ? worldToSVG({ x: 0, y: 0 }).y : height - padding;
+    const originX = hasYAxis ? worldToSVG({ x: 0, y: 0 }).x : padding;
 
-    // Y轴
-    const originX = worldToSVG({ x: 0, y: 0 }).x;
-    svg += `    <line class="axis-line" x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${height - padding}"/>\n`;
+    if (hasXAxis) {
+      svg += `    <line class="axis-line" x1="${padding}" y1="${originY.toFixed(2)}" x2="${width - padding}" y2="${originY.toFixed(2)}"/>\n`;
+    }
+    if (hasYAxis) {
+      svg += `    <line class="axis-line" x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${height - padding}"/>\n`;
+    }
 
     svg += `  </g>
-  
+
   <!-- 刻度标签（主格点） -->
   <g class="tick-labels">
 `;
 
     // X轴刻度（主格点）
-    for (let x = xMajorStart; x <= axisConfig.xMax; x += axisConfig.xMajorGridSize) {
-      if (Math.abs(x) < 0.001) continue;
+    for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
+      const x = i * axisConfig.xMajorGridSize;
+      if (Math.abs(x) < 0.001 && hasXAxis && hasYAxis) continue; // 原点不标数字
       const screenX = worldToSVG({ x, y: 0 }).x;
       const label = Number.isInteger(x) ? x.toString() : x.toFixed(1);
       svg += `    <text class="axis-text" x="${screenX.toFixed(2)}" y="${(originY + 20).toFixed(2)}" text-anchor="middle">${label}</text>\n`;
     }
 
     // Y轴刻度（主格点）
-    for (let y = yMajorStart; y <= axisConfig.yMax; y += axisConfig.yMajorGridSize) {
-      if (Math.abs(y) < 0.001) continue;
+    for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
+      const y = i * axisConfig.yMajorGridSize;
+      if (Math.abs(y) < 0.001 && hasXAxis && hasYAxis) continue;
       const screenY = worldToSVG({ x: 0, y }).y;
       const label = Number.isInteger(y) ? y.toString() : y.toFixed(1);
       svg += `    <text class="axis-text" x="${(originX - 10).toFixed(2)}" y="${(screenY + 4).toFixed(2)}" text-anchor="end">${label}</text>\n`;
     }
 
     svg += `  </g>
-  
+
   <!-- 轴标签 -->
   <g class="axis-labels">
     <text class="axis-label" x="${(width - padding + 20).toFixed(2)}" y="${(originY + 5).toFixed(2)}" text-anchor="middle">${axisConfig.xUnit}</text>
     <text class="axis-label" x="${(originX - 25).toFixed(2)}" y="${(padding - 20).toFixed(2)}" text-anchor="middle">${axisConfig.yUnit}</text>
   </g>
-  
+
   <!-- 波形线段 -->
   <g class="waveforms">
 `;
@@ -944,13 +958,14 @@ export function useWaveform() {
   // 导出波形数据为JSON对象
   const exportData = useCallback(() => {
     return {
-      version: '1.0',
+      version: '2.0',
       exportTime: new Date().toISOString(),
       axisConfig,
+      viewport,
       groups,
       segments,
     };
-  }, [axisConfig, groups, segments]);
+  }, [axisConfig, viewport, groups, segments]);
 
   // 下载JSON文件
   const downloadJSON = useCallback((filename: string = 'waveform.json') => {
@@ -966,16 +981,35 @@ export function useWaveform() {
     URL.revokeObjectURL(url);
   }, [exportData]);
 
-  // 导入波形数据
+  // 导入波形数据（兼容 1.0 版：忽略旧的 xMin/xMax/yMin/yMax/zoom 字段）
   const importData = useCallback((data: {
     version?: string;
-    axisConfig?: AxisConfig;
+    axisConfig?: Partial<AxisConfig>;
+    viewport?: Partial<Viewport>;
     groups?: WaveformGroup[];
     segments?: LineSegment[];
   }) => {
-    // 导入坐标配置（如果存在）
+    // 导入坐标配置（如果存在），只提取当前版本认识的字段
     if (data.axisConfig) {
-      setAxisConfig(data.axisConfig);
+      const a = data.axisConfig;
+      setAxisConfig({
+        xUnit: a.xUnit ?? 't',
+        yUnit: a.yUnit ?? 'A',
+        xGridSize: a.xGridSize || 0.5,
+        yGridSize: a.yGridSize || 0.5,
+        xMajorGridSize: a.xMajorGridSize || 2,
+        yMajorGridSize: a.yMajorGridSize || 2,
+      });
+    }
+
+    // 恢复视口（2.0 版才有；旧文件保持当前视口）
+    if (data.viewport) {
+      const v = data.viewport;
+      setViewport({
+        centerX: v.centerX ?? 0,
+        centerY: v.centerY ?? 0,
+        scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, v.scale || BASE_SCALE)),
+      });
     }
     
     // 导入组和线段
@@ -1108,6 +1142,8 @@ export function useWaveform() {
     groups,
     selectedSegments,
     axisConfig,
+    viewport,
+    setViewport,
     mode,
     selectedGroup,
     activeSegment,

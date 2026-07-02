@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { useWaveform } from '@/hooks/useWaveform';
+import { useWaveform, BASE_SCALE, MIN_SCALE, MAX_SCALE } from '@/hooks/useWaveform';
 import { WaveformCanvas } from '@/components/WaveformCanvas';
 import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
@@ -91,6 +91,8 @@ function App() {
     segments,
     groups,
     axisConfig,
+    viewport,
+    setViewport,
     mode,
     selectedGroup,
     activeSegment,
@@ -167,6 +169,37 @@ function App() {
   const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // 拖动中点创建曲线
   // 本次拖动是否实际改动了线段（决定松手时要不要存撤销历史）
   const dragChangedRef = React.useRef(false);
+
+  // 画布平移状态（中键拖拽或空格+左键拖拽）
+  const [isPanning, setIsPanning] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
+
+  // 空格键按住时进入平移待命状态
+  React.useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) =>
+      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isTypingTarget(e.target)) {
+        e.preventDefault(); // 防止页面滚动
+        setSpaceHeld(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setSpaceHeld(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
   // 移动偏移显示
   const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
   
@@ -229,13 +262,32 @@ function App() {
     reader.readAsText(file);
   }, [importData]);
 
-  // 缩放处理
-  const handleZoom = useCallback((delta: number) => {
-    setAxisConfig(prev => {
-      const newZoom = Math.max(0.5, Math.min(5, (prev.zoom || 1) + delta));
-      return { ...prev, zoom: newZoom };
+  // 缩放处理：factor为缩放倍数；传入screenPos（画布坐标）时以该点为中心缩放
+  const handleZoom = useCallback((factor: number, screenPos?: Point) => {
+    const canvas = canvasRef.current;
+    setViewport(prev => {
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * factor));
+      if (newScale === prev.scale) return prev;
+      if (!screenPos || !canvas) {
+        return { ...prev, scale: newScale };
+      }
+      // 保持鼠标下方的世界点在屏幕上位置不变
+      const dx = screenPos.x - canvas.width / 2;
+      const dy = screenPos.y - canvas.height / 2;
+      const worldX = prev.centerX + dx / prev.scale;
+      const worldY = prev.centerY - dy / prev.scale;
+      return {
+        centerX: worldX - dx / newScale,
+        centerY: worldY + dy / newScale,
+        scale: newScale,
+      };
     });
-  }, []);
+  }, [canvasRef, setViewport]);
+
+  // 复位视口（回原点、100%缩放）
+  const resetViewport = useCallback(() => {
+    setViewport({ centerX: 0, centerY: 0, scale: BASE_SCALE });
+  }, [setViewport]);
 
   // 切换选中组时清除activeSegment
   const handleSelectGroup = useCallback((groupId: string | null) => {
@@ -404,7 +456,20 @@ function App() {
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    
+
+    // 画布平移：中键，或空格+左键（任何模式下可用）
+    if (e.button === 1 || (spaceHeld && e.button === 0)) {
+      panStartRef.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        centerX: viewport.centerX,
+        centerY: viewport.centerY,
+      };
+      setIsPanning(true);
+      return;
+    }
+    if (e.button !== 0) return; // 忽略右键
+
     if (mode === 'draw') {
       const worldPos = getMouseWorldPos(e);
       const snapped = snapToGrid(worldPos);
@@ -503,9 +568,22 @@ function App() {
         }
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, copyingSegments.length, setCopyStartPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, copyingSegments.length, setCopyStartPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // 画布平移中
+    if (isPanning && panStartRef.current) {
+      const start = panStartRef.current;
+      const dx = e.clientX - start.clientX;
+      const dy = e.clientY - start.clientY;
+      setViewport(prev => ({
+        ...prev,
+        centerX: start.centerX - dx / prev.scale,
+        centerY: start.centerY + dy / prev.scale,
+      }));
+      return;
+    }
+
     const worldPos = getMouseWorldPos(e);
     const snapped = snapToGrid(worldPos);
     setCurrentMouse(snapped);
@@ -569,9 +647,14 @@ function App() {
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
     }
-  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset]);
+  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport]);
 
   const handleMouseUp = useCallback(() => {
+    if (isPanning) {
+      setIsPanning(false);
+      panStartRef.current = null;
+      return;
+    }
     if (isDrawing && drawStart && currentMouse) {
       const dist = Math.sqrt(
         Math.pow(currentMouse.x - drawStart.x, 2) +
@@ -620,7 +703,7 @@ function App() {
       }
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -718,10 +801,11 @@ function App() {
             <div className="relative bg-white rounded-lg shadow flex-1" style={{ touchAction: 'none', overflow: 'hidden' }}>
               {/* 缩放控制（左下） */}
               <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-white/90 rounded-lg px-2 py-1 shadow border">
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(-0.2)}>−</Button>
-                <span className="text-xs font-mono w-14 text-center">{Math.round((axisConfig.zoom || 1) * 100)}%</span>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.2)}>+</Button>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setAxisConfig(prev => ({ ...prev, zoom: 1 }))}>重置</Button>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.8)}>−</Button>
+                <span className="text-xs font-mono w-14 text-center">{Math.round((viewport.scale / BASE_SCALE) * 100)}%</span>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>复位</Button>
+                <span className="text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
               </div>
 
               {/* 偏移值显示（移动组或复制预览时） */}
@@ -763,6 +847,7 @@ function App() {
                 onMouseUp={handleMouseUp}
                 onDoubleClick={handleDoubleClick}
                 onZoomChange={handleZoom}
+                panning={isPanning ? 'active' : spaceHeld ? 'ready' : null}
                 canvasRef={canvasRef}
               />
             </div>
@@ -785,12 +870,6 @@ function App() {
                     <Label className="text-sm text-gray-500 whitespace-nowrap">主格点</Label>
                     <Input type="number" step="0.5" value={axisConfig.yMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">范围</Label>
-                    <Input type="number" value={axisConfig.yMin} onChange={(e) => setAxisConfig({ ...axisConfig, yMin: parseFloat(e.target.value) || 0 })} className="h-7 w-14 text-sm px-2" />
-                    <span className="text-gray-400 text-sm">~</span>
-                    <Input type="number" value={axisConfig.yMax} onChange={(e) => setAxisConfig({ ...axisConfig, yMax: parseFloat(e.target.value) || 10 })} className="h-7 w-14 text-sm px-2" />
-                  </div>
                 </div>
                 {/* 分割线 */}
                 <div className="w-px h-8 bg-gray-300 mx-4" />
@@ -807,12 +886,6 @@ function App() {
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">主格点</Label>
                     <Input type="number" step="0.5" value={axisConfig.xMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, xMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">范围</Label>
-                    <Input type="number" value={axisConfig.xMin} onChange={(e) => setAxisConfig({ ...axisConfig, xMin: parseFloat(e.target.value) || 0 })} className="h-7 w-14 text-sm px-2" />
-                    <span className="text-gray-400 text-sm">~</span>
-                    <Input type="number" value={axisConfig.xMax} onChange={(e) => setAxisConfig({ ...axisConfig, xMax: parseFloat(e.target.value) || 10 })} className="h-6 w-12 text-xs px-1" />
                   </div>
                 </div>
               </div>

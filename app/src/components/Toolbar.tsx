@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
-import type { WaveformGroup, LineSegment } from '@/types/waveform';
+import type { WaveformGroup, LineSegment, CalcTerm } from '@/types/waveform';
 
 // 颜色选择器组件
 interface ColorPickerProps {
@@ -189,7 +189,7 @@ interface ToolbarProps {
   onDeleteGroup: (id: string) => void;
   onToggleGroupVisibility: (id: string) => void;
   onSelectGroup: (id: string | null) => void;
-  onCalculateWaveforms: (expression: string, groupIds: string[], operators: ('+' | '-')[]) => void;
+  onCalculateWaveforms: (expression: string, terms: CalcTerm[], operators: ('+' | '-')[]) => void;
   onClearAll: () => void;
   onDuplicateGroup: (groupId: string) => void;
   onRenameGroup: (groupId: string, newName: string) => void;

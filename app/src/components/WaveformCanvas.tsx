@@ -22,7 +22,8 @@ interface WaveformCanvasProps {
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseUp: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
-  onZoomChange?: (delta: number) => void;
+  onZoomChange?: (factor: number, screenPos?: Point) => void;
+  panning?: 'ready' | 'active' | null; // 平移状态：ready=按住空格待拖，active=拖拽中
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
@@ -40,208 +41,152 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   copyingSegments = [],
   copyOffset = { x: 0, y: 0 },
   worldToScreen,
+  screenToWorld,
   snapToGrid,
   onMouseDown,
   onMouseMove,
   onMouseUp,
   onDoubleClick,
   onZoomChange,
+  panning = null,
   canvasRef,
 }) => {
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
-    const padding = 60;
-    
-    // 次格点（浅灰色实线）
-    ctx.strokeStyle = '#e5e7eb';  // 浅灰色
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);  // 实线
-    
-    // 垂直次格线 - 只在可见范围内绘制
-    const xStart = Math.ceil(axisConfig.xMin / axisConfig.xGridSize) * axisConfig.xGridSize;
-    for (let x = xStart; x <= axisConfig.xMax; x += axisConfig.xGridSize) {
-      // 跳过主格点位置
-      if (Math.abs(x % axisConfig.xMajorGridSize) < 0.001) continue;
-      const screenX = worldToScreen({ x, y: 0 }, canvas).x;
-      // 只绘制在画布范围内的线
-      if (screenX >= padding && screenX <= canvas.width - padding) {
-        ctx.beginPath();
-        ctx.moveTo(screenX, padding);
-        ctx.lineTo(screenX, canvas.height - padding);
-        ctx.stroke();
-      }
-    }
-    
-    // 水平次格线 - 只在可见范围内绘制
-    const yStart = Math.ceil(axisConfig.yMin / axisConfig.yGridSize) * axisConfig.yGridSize;
-    for (let y = yStart; y <= axisConfig.yMax; y += axisConfig.yGridSize) {
-      // 跳过主格点位置
-      if (Math.abs(y % axisConfig.yMajorGridSize) < 0.001) continue;
-      const screenY = worldToScreen({ x: 0, y }, canvas).y;
-      // 只绘制在画布范围内的线
-      if (screenY >= padding && screenY <= canvas.height - padding) {
-        ctx.beginPath();
-        ctx.moveTo(padding, screenY);
-        ctx.lineTo(canvas.width - padding, screenY);
-        ctx.stroke();
-      }
-    }
-    
-    // 主格点（实线，深灰色）
-    ctx.strokeStyle = '#6b7280';  // 深灰色，更清晰
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]);  // 实线
-    
-    // 垂直主格线 - 只在可见范围内绘制
-    const xMajorStart = Math.ceil(axisConfig.xMin / axisConfig.xMajorGridSize) * axisConfig.xMajorGridSize;
-    for (let x = xMajorStart; x <= axisConfig.xMax; x += axisConfig.xMajorGridSize) {
-      const screenX = worldToScreen({ x, y: 0 }, canvas).x;
-      // 只绘制在画布范围内的线
-      if (screenX >= padding && screenX <= canvas.width - padding) {
-        ctx.beginPath();
-        ctx.moveTo(screenX, padding);
-        ctx.lineTo(screenX, canvas.height - padding);
-        ctx.stroke();
-      }
-    }
-    
-    // 水平主格线 - 只在可见范围内绘制
-    const yMajorStart = Math.ceil(axisConfig.yMin / axisConfig.yMajorGridSize) * axisConfig.yMajorGridSize;
-    for (let y = yMajorStart; y <= axisConfig.yMax; y += axisConfig.yMajorGridSize) {
-      const screenY = worldToScreen({ x: 0, y }, canvas).y;
-      // 只绘制在画布范围内的线
-      if (screenY >= padding && screenY <= canvas.height - padding) {
-        ctx.beginPath();
-        ctx.moveTo(padding, screenY);
-        ctx.lineTo(canvas.width - padding, screenY);
-        ctx.stroke();
-      }
-    }
-    
-    // 坐标轴（粗黑线）- 只在可见范围内绘制
-    ctx.strokeStyle = '#000000';  // 纯黑色
-    ctx.lineWidth = 3;
-    
-    // X轴 - 只有当Y=0在可见范围内时才绘制
-    const originY = worldToScreen({ x: 0, y: 0 }, canvas).y;
-    if (originY >= padding && originY <= canvas.height - padding) {
-      ctx.beginPath();
-      ctx.moveTo(padding, originY);
-      ctx.lineTo(canvas.width - padding, originY);
-      ctx.stroke();
-    }
-    
-    // Y轴 - 只有当X=0在可见范围内时才绘制
-    const originX = worldToScreen({ x: 0, y: 0 }, canvas).x;
-    if (originX >= padding && originX <= canvas.width - padding) {
-      ctx.beginPath();
-      ctx.moveTo(originX, padding);
-      ctx.lineTo(originX, canvas.height - padding);
-      ctx.stroke();
-    }
-    
-    // 刻度标签（只在主格点且可见范围内显示）
-    ctx.fillStyle = '#1f2937';  // 深黑色文字
-    ctx.font = 'bold 13px sans-serif';  // 稍大字体
-    ctx.textAlign = 'center';
-    
-    // X轴刻度（主格点）- 只在X轴可见时显示
-    if (originY >= padding && originY <= canvas.height - padding) {
-      for (let x = xMajorStart; x <= axisConfig.xMax; x += axisConfig.xMajorGridSize) {
-        if (Math.abs(x) < 0.001) continue;
-        const screenX = worldToScreen({ x, y: 0 }, canvas).x;
-        // 只显示在画布范围内的标签
-        if (screenX >= padding && screenX <= canvas.width - padding) {
-          // 格式化数字显示
-          const label = Number.isInteger(x) ? x.toString() : x.toFixed(1);
-          ctx.fillText(label, screenX, originY + 22);
-        }
-      }
-    }
-    
-    // Y轴刻度（主格点）- 只在Y轴可见时显示
-    if (originX >= padding && originX <= canvas.width - padding) {
-      ctx.textAlign = 'right';
-      for (let y = yMajorStart; y <= axisConfig.yMax; y += axisConfig.yMajorGridSize) {
-        if (Math.abs(y) < 0.001) continue;
-        const screenY = worldToScreen({ x: 0, y }, canvas).y;
-        // 只显示在画布范围内的标签
-        if (screenY >= padding && screenY <= canvas.height - padding) {
-          // 格式化数字显示
-          const label = Number.isInteger(y) ? y.toString() : y.toFixed(1);
-          ctx.fillText(label, originX - 12, screenY + 5);
-        }
-      }
-    }
-    
-    // 轴标签 - 只在对应轴可见时显示
-    ctx.fillStyle = '#000000';  // 纯黑色
-    ctx.font = 'bold 16px sans-serif';  // 更大字体
-    ctx.textAlign = 'center';
-    if (originY >= padding && originY <= canvas.height - padding) {
-      ctx.fillText(axisConfig.xUnit, canvas.width - padding + 25, originY + 6);
-    }
-    if (originX >= padding && originX <= canvas.width - padding) {
-      ctx.fillText(axisConfig.yUnit, originX - 30, padding - 15);
-    }
-  }, [axisConfig, worldToScreen]);
+    // 当前视口的世界坐标范围（无限画布：网格铺满整个画布）
+    const topLeft = screenToWorld({ x: 0, y: 0 }, canvas);
+    const bottomRight = screenToWorld({ x: canvas.width, y: canvas.height }, canvas);
+    const xMinVis = topLeft.x;
+    const xMaxVis = bottomRight.x;
+    const yMinVis = bottomRight.y;
+    const yMaxVis = topLeft.y;
 
-  // Liang-Barsky 线段裁剪算法
-  const clipSegmentToBounds = (segment: LineSegment): LineSegment | null => {
-    const { xMin, xMax, yMin, yMax } = axisConfig;
-    let { x: x1, y: y1 } = segment.start;
-    let { x: x2, y: y2 } = segment.end;
-    
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    
-    let p = [-dx, dx, -dy, dy];
-    let q = [x1 - xMin, xMax - x1, y1 - yMin, yMax - y1];
-    
-    let u1 = 0;
-    let u2 = 1;
-    
-    for (let i = 0; i < 4; i++) {
-      if (p[i] === 0) {
-        if (q[i] < 0) return null; // 平行且在外部
-      } else {
-        const t = q[i] / p[i];
-        if (p[i] < 0) {
-          u1 = Math.max(u1, t);
-        } else {
-          u2 = Math.min(u2, t);
-        }
+    // 每世界单位对应的像素数（用于密度控制）
+    const pxPerUnit = worldToScreen({ x: 1, y: 0 }, canvas).x - worldToScreen({ x: 0, y: 0 }, canvas).x;
+
+    const isMajor = (v: number, major: number) =>
+      Math.abs(v / major - Math.round(v / major)) < 1e-6;
+
+    // 次格点（浅灰色实线）——间距小于5px时太密，跳过不画
+    if (axisConfig.xGridSize * pxPerUnit >= 5 && axisConfig.yGridSize * pxPerUnit >= 5) {
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+
+      // 垂直次格线（整数索引循环避免浮点累加误差）
+      for (let i = Math.ceil(xMinVis / axisConfig.xGridSize); i * axisConfig.xGridSize <= xMaxVis; i++) {
+        const x = i * axisConfig.xGridSize;
+        if (isMajor(x, axisConfig.xMajorGridSize)) continue;
+        const screenX = worldToScreen({ x, y: 0 }, canvas).x;
+        ctx.beginPath();
+        ctx.moveTo(screenX, 0);
+        ctx.lineTo(screenX, canvas.height);
+        ctx.stroke();
+      }
+
+      // 水平次格线
+      for (let i = Math.ceil(yMinVis / axisConfig.yGridSize); i * axisConfig.yGridSize <= yMaxVis; i++) {
+        const y = i * axisConfig.yGridSize;
+        if (isMajor(y, axisConfig.yMajorGridSize)) continue;
+        const screenY = worldToScreen({ x: 0, y }, canvas).y;
+        ctx.beginPath();
+        ctx.moveTo(0, screenY);
+        ctx.lineTo(canvas.width, screenY);
+        ctx.stroke();
       }
     }
-    
-    if (u1 > u2) return null; // 完全在外部
-    
-    // 裁剪后的端点
-    const newStart = {
-      x: x1 + u1 * dx,
-      y: y1 + u1 * dy
-    };
-    const newEnd = {
-      x: x1 + u2 * dx,
-      y: y1 + u2 * dy
-    };
-    
-    return {
-      ...segment,
-      start: newStart,
-      end: newEnd
-    };
-  };
+
+    // 主格点（深灰色实线）——间距小于12px时跳过
+    const showMajor = axisConfig.xMajorGridSize * pxPerUnit >= 12 && axisConfig.yMajorGridSize * pxPerUnit >= 12;
+    if (showMajor) {
+      ctx.strokeStyle = '#6b7280';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+
+      for (let i = Math.ceil(xMinVis / axisConfig.xMajorGridSize); i * axisConfig.xMajorGridSize <= xMaxVis; i++) {
+        const screenX = worldToScreen({ x: i * axisConfig.xMajorGridSize, y: 0 }, canvas).x;
+        ctx.beginPath();
+        ctx.moveTo(screenX, 0);
+        ctx.lineTo(screenX, canvas.height);
+        ctx.stroke();
+      }
+
+      for (let i = Math.ceil(yMinVis / axisConfig.yMajorGridSize); i * axisConfig.yMajorGridSize <= yMaxVis; i++) {
+        const screenY = worldToScreen({ x: 0, y: i * axisConfig.yMajorGridSize }, canvas).y;
+        ctx.beginPath();
+        ctx.moveTo(0, screenY);
+        ctx.lineTo(canvas.width, screenY);
+        ctx.stroke();
+      }
+    }
+
+    // 坐标轴（粗黑线）——原点在视野内才画
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+
+    const origin = worldToScreen({ x: 0, y: 0 }, canvas);
+    const xAxisVisible = origin.y >= 0 && origin.y <= canvas.height;
+    const yAxisVisible = origin.x >= 0 && origin.x <= canvas.width;
+
+    if (xAxisVisible) {
+      ctx.beginPath();
+      ctx.moveTo(0, origin.y);
+      ctx.lineTo(canvas.width, origin.y);
+      ctx.stroke();
+    }
+    if (yAxisVisible) {
+      ctx.beginPath();
+      ctx.moveTo(origin.x, 0);
+      ctx.lineTo(origin.x, canvas.height);
+      ctx.stroke();
+    }
+
+    // 刻度标签（主格点）——轴不在视野内时标签贴画布边缘显示
+    if (showMajor && axisConfig.xMajorGridSize * pxPerUnit >= 30) {
+      const labelY = Math.min(Math.max(origin.y + 22, 16), canvas.height - 8);
+      const labelXBase = Math.min(Math.max(origin.x - 12, 34), canvas.width - 6);
+
+      ctx.fillStyle = '#1f2937';
+      ctx.font = 'bold 13px sans-serif';
+
+      // X轴刻度
+      ctx.textAlign = 'center';
+      for (let i = Math.ceil(xMinVis / axisConfig.xMajorGridSize); i * axisConfig.xMajorGridSize <= xMaxVis; i++) {
+        const x = i * axisConfig.xMajorGridSize;
+        if (Math.abs(x) < 1e-9) continue;
+        const screenX = worldToScreen({ x, y: 0 }, canvas).x;
+        const label = Number.isInteger(x) ? x.toString() : x.toFixed(1);
+        ctx.fillText(label, screenX, labelY);
+      }
+
+      // Y轴刻度
+      ctx.textAlign = 'right';
+      for (let i = Math.ceil(yMinVis / axisConfig.yMajorGridSize); i * axisConfig.yMajorGridSize <= yMaxVis; i++) {
+        const y = i * axisConfig.yMajorGridSize;
+        if (Math.abs(y) < 1e-9) continue;
+        const screenY = worldToScreen({ x: 0, y }, canvas).y;
+        const label = Number.isInteger(y) ? y.toString() : y.toFixed(1);
+        ctx.fillText(label, labelXBase, screenY + 5);
+      }
+    }
+
+    // 轴单位标签
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    if (xAxisVisible) {
+      ctx.fillText(axisConfig.xUnit, canvas.width - 16, origin.y - 10);
+    }
+    if (yAxisVisible) {
+      ctx.fillText(axisConfig.yUnit, origin.x + 18, 18);
+    }
+  }, [axisConfig, worldToScreen, screenToWorld]);
 
   const drawSegment = useCallback((ctx: CanvasRenderingContext2D, segment: LineSegment, canvas: HTMLCanvasElement, selectedSegs: Set<string>) => {
     const group = groups.find(g => g.id === segment.groupId);
     if (group && !group.visible) return;
-    
-    // 裁剪线段
-    const clippedSegment = clipSegmentToBounds(segment);
-    if (!clippedSegment) return;
-    
-    const start = worldToScreen(clippedSegment.start, canvas);
-    const end = worldToScreen(clippedSegment.end, canvas);
+
+    const start = worldToScreen(segment.start, canvas);
+    const end = worldToScreen(segment.end, canvas);
     const color = group?.color || '#3b82f6';
     
     // 删除模式下，悬停的线段显示红色
@@ -257,59 +202,31 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.lineWidth = segment.id === activeSegment ? 3 : 2;
     }
     
-    if (clippedSegment.type === 'curve' && segment.control) {
-      // 对曲线进行采样并裁剪
-      const samples: Point[] = [];
-      const numSamples = 20;
-      for (let i = 0; i <= numSamples; i++) {
-        const t = i / numSamples;
-        const x = (1 - t) * (1 - t) * segment.start.x + 2 * (1 - t) * t * segment.control.x + t * t * segment.end.x;
-        const y = (1 - t) * (1 - t) * segment.start.y + 2 * (1 - t) * t * segment.control.y + t * t * segment.end.y;
-        
-        // 检查点是否在范围内
-        if (x >= axisConfig.xMin && x <= axisConfig.xMax && 
-            y >= axisConfig.yMin && y <= axisConfig.yMax) {
-          samples.push({ x, y });
-        } else if (samples.length > 0) {
-          // 点超出范围，绘制已收集的点
-          break;
-        }
-      }
-      
-      // 绘制曲线段
-      if (samples.length > 1) {
-        ctx.beginPath();
-        const first = worldToScreen(samples[0], canvas);
-        ctx.moveTo(first.x, first.y);
-        for (let i = 1; i < samples.length; i++) {
-          const p = worldToScreen(samples[i], canvas);
-          ctx.lineTo(p.x, p.y);
-        }
-        ctx.stroke();
-      }
-      
-      // 绘制控制点（编辑模式）- 只在可见时显示
+    if (segment.type === 'curve' && segment.control) {
+      // 二次贝塞尔曲线直接绘制（画布边界自动裁剪）
+      const control = worldToScreen(segment.control, canvas);
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+      ctx.stroke();
+
+      // 绘制控制点（编辑模式）
       if (mode === 'edit') {
-        const controlInBounds = segment.control.x >= axisConfig.xMin && segment.control.x <= axisConfig.xMax &&
-                                segment.control.y >= axisConfig.yMin && segment.control.y <= axisConfig.yMax;
-        if (controlInBounds) {
-          const control = worldToScreen(segment.control, canvas);
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
-          ctx.fill();
-          
-          // 控制线
-          ctx.strokeStyle = '#fca5a5';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([5, 5]);
-          ctx.beginPath();
-          ctx.moveTo(start.x, start.y);
-          ctx.lineTo(control.x, control.y);
-          ctx.lineTo(end.x, end.y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 控制线
+        ctx.strokeStyle = '#fca5a5';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(control.x, control.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
     } else {
       ctx.beginPath();
@@ -342,23 +259,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-  }, [groups, activeSegment, mode, selectedGroup, worldToScreen, axisConfig]);
+  }, [groups, activeSegment, mode, selectedGroup, worldToScreen]);
 
   const drawPreview = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     if (!isDrawing || !drawStart || !currentMouse) return;
-    
-    // 裁剪预览线
-    const previewSegment = clipSegmentToBounds({ 
-      id: 'preview', 
-      start: drawStart, 
-      end: currentMouse, 
-      type: 'line' 
-    });
-    if (!previewSegment) return;
-    
-    const start = worldToScreen(previewSegment.start, canvas);
-    const end = worldToScreen(previewSegment.end, canvas);
-    
+
+    const start = worldToScreen(drawStart, canvas);
+    const end = worldToScreen(currentMouse, canvas);
+
     ctx.strokeStyle = '#9ca3af';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
@@ -367,17 +275,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
     ctx.setLineDash([]);
-    
-    // 显示坐标（只在范围内时显示）
-    if (currentMouse.x >= axisConfig.xMin && currentMouse.x <= axisConfig.xMax &&
-        currentMouse.y >= axisConfig.yMin && currentMouse.y <= axisConfig.yMax) {
-      ctx.fillStyle = '#111827';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'left';
-      const snapped = snapToGrid(currentMouse);
-      ctx.fillText(`(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`, end.x + 10, end.y - 10);
-    }
-  }, [isDrawing, drawStart, currentMouse, worldToScreen, snapToGrid, axisConfig]);
+
+    // 显示坐标
+    ctx.fillStyle = '#111827';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    const snapped = snapToGrid(currentMouse);
+    ctx.fillText(`(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`, end.x + 10, end.y - 10);
+  }, [isDrawing, drawStart, currentMouse, worldToScreen, snapToGrid]);
 
   // 绘制复制预览
   const drawCopyPreview = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
@@ -390,63 +295,23 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.globalAlpha = 0.85; // 稍透明但足够明显
     
     copyingSegments.forEach(segment => {
-      // 应用偏移后的线段
-      const offsetSegment: LineSegment = {
-        ...segment,
-        start: { x: segment.start.x + copyOffset.x, y: segment.start.y + copyOffset.y },
-        end: { x: segment.end.x + copyOffset.x, y: segment.end.y + copyOffset.y },
-        control: segment.control ? { x: segment.control.x + copyOffset.x, y: segment.control.y + copyOffset.y } : undefined
-      };
-      
-      // 裁剪到可见区域
-      const clippedSegment = clipSegmentToBounds(offsetSegment);
-      if (!clippedSegment) return;
-      
-      const start = worldToScreen(clippedSegment.start, canvas);
-      const end = worldToScreen(clippedSegment.end, canvas);
-      
+      const start = worldToScreen({ x: segment.start.x + copyOffset.x, y: segment.start.y + copyOffset.y }, canvas);
+      const end = worldToScreen({ x: segment.end.x + copyOffset.x, y: segment.end.y + copyOffset.y }, canvas);
+
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
       if (segment.type === 'curve' && segment.control) {
-        // 对曲线进行采样并裁剪
-        const samples: Point[] = [];
-        const numSamples = 20;
-        const startP = offsetSegment.start;
-        const endP = offsetSegment.end;
-        const controlP = offsetSegment.control!;
-        
-        for (let i = 0; i <= numSamples; i++) {
-          const t = i / numSamples;
-          const x = (1 - t) * (1 - t) * startP.x + 2 * (1 - t) * t * controlP.x + t * t * endP.x;
-          const y = (1 - t) * (1 - t) * startP.y + 2 * (1 - t) * t * controlP.y + t * t * endP.y;
-          
-          if (x >= axisConfig.xMin && x <= axisConfig.xMax && 
-              y >= axisConfig.yMin && y <= axisConfig.yMax) {
-            samples.push({ x, y });
-          } else if (samples.length > 0) {
-            break;
-          }
-        }
-        
-        if (samples.length > 1) {
-          ctx.beginPath();
-          const first = worldToScreen(samples[0], canvas);
-          ctx.moveTo(first.x, first.y);
-          for (let i = 1; i < samples.length; i++) {
-            const p = worldToScreen(samples[i], canvas);
-            ctx.lineTo(p.x, p.y);
-          }
-          ctx.stroke();
-        }
+        const control = worldToScreen({ x: segment.control.x + copyOffset.x, y: segment.control.y + copyOffset.y }, canvas);
+        ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
       } else {
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
         ctx.lineTo(end.x, end.y);
-        ctx.stroke();
       }
+      ctx.stroke();
     });
-    
+
     ctx.setLineDash([]);
     ctx.globalAlpha = 1.0;
-  }, [copyingSegments, copyOffset, worldToScreen, groups, axisConfig]);
+  }, [copyingSegments, copyOffset, worldToScreen]);
 
   // 自适应画布大小
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -533,18 +398,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     select: 'default',
   };
 
-  // 滚轮缩放处理
+  // 滚轮缩放处理（以鼠标位置为中心）
   const handleWheel = (e: React.WheelEvent) => {
     // 阻止所有默认行为（防止页面滚动和任何视觉反馈）
     e.preventDefault();
     e.stopPropagation();
-    
-    if (onZoomChange) {
+
+    if (onZoomChange && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
       // deltaY > 0 表示向下滚动（缩小），deltaY < 0 表示向上滚动（放大）
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      onZoomChange(delta);
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      onZoomChange(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
-    
+
     return false;
   };
 
@@ -558,7 +424,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         style={{ 
           width: canvasSize.width, 
           height: canvasSize.height,
-          cursor: MODE_CURSORS[mode]
+          cursor: panning === 'active' ? 'grabbing' : panning === 'ready' ? 'grab' : MODE_CURSORS[mode]
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}

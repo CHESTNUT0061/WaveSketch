@@ -27,11 +27,19 @@ export interface AxisConfig {
   yGridSize: number;
   xMajorGridSize: number; // 主格点（用于显示数字）
   yMajorGridSize: number;
-  xMin: number;
-  xMax: number;
-  yMin: number;
-  yMax: number;
-  zoom?: number;          // 缩放比例（默认1）
+}
+
+// 无限画布视口：世界坐标中心 + 缩放（像素/世界单位）
+export interface Viewport {
+  centerX: number;
+  centerY: number;
+  scale: number;
+}
+
+// 波形计算器的一项：组 × 常数系数
+export interface CalcTerm {
+  groupId: string;
+  scale: number;
 }
 
 export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select';
