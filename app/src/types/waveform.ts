@@ -36,10 +36,10 @@ export interface Viewport {
   scale: number;
 }
 
-// 波形计算器的一项：组 × 常数系数
-export interface CalcTerm {
-  groupId: string;
-  scale: number;
-}
+// 波形计算器 RPN（逆波兰）token：g=波形组引用，c=常数，op=二元运算符
+export type CalcRpnToken =
+  | { t: 'g'; id: string }
+  | { t: 'c'; v: number }
+  | { t: 'op'; v: '+' | '-' | '×' };
 
 export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select';

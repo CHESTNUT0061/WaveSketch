@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus } from 'lucide-react';
 
-export type WaveformType = 'square' | 'ramp' | 'sine';
+export type WaveformType = 'square' | 'ramp' | 'sine' | 'triangle' | 'sawtooth' | 'trapezoid' | 'rectified' | 'damped';
 
 interface WaveformGeneratorProps {
   onGenerate: (
@@ -18,6 +18,9 @@ interface WaveformGeneratorProps {
       totalCycles: number;
       startTime: number;
       phaseShift: number;
+      offset?: number;
+      edgePercent?: number;
+      dampingTau?: number;
     },
     groupName: string,
     customColor?: string,
@@ -27,9 +30,23 @@ interface WaveformGeneratorProps {
 
 const WAVE_TYPES: { value: WaveformType; label: string }[] = [
   { value: 'square', label: '方波' },
-  { value: 'ramp', label: 'Ramp波' },
+  { value: 'ramp', label: 'Ramp波（电感电流）' },
   { value: 'sine', label: '正弦波' },
+  { value: 'triangle', label: '三角波（PWM载波）' },
+  { value: 'sawtooth', label: '锯齿波' },
+  { value: 'trapezoid', label: '梯形波（开关节点）' },
+  { value: 'rectified', label: '整流正弦 |sin|' },
+  { value: 'damped', label: '阻尼振荡（振铃）' },
 ];
+
+// 使用占空比参数的波形类型
+const DUTY_TYPES: WaveformType[] = ['square', 'ramp', 'triangle', 'trapezoid'];
+const DUTY_LABELS: Partial<Record<WaveformType, string>> = {
+  square: '占空比 (%)',
+  ramp: '上升占空比 (%)',
+  triangle: '峰值位置 (%)',
+  trapezoid: '占空比 (%)',
+};
 
 export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate }) => {
   const [type, setType] = useState<WaveformType>('square');
@@ -38,6 +55,9 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   const [dutyCycle, setDutyCycle] = useState(50);
   const [totalCycles, setTotalCycles] = useState(3);
   const [startTime, setStartTime] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [edgePercent, setEdgePercent] = useState(10);
+  const [dampingTau, setDampingTau] = useState(2);
   const [_phaseShift, _setPhaseShift] = useState(0);
   const [enablePhaseShift, setEnablePhaseShift] = useState(false);
   const [phaseCount, setPhaseCount] = useState(4);
@@ -73,6 +93,9 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
           totalCycles,
           startTime,
           phaseShift: phase,
+          offset,
+          edgePercent,
+          dampingTau,
         }, `${WAVE_TYPES.find(w => w.value === type)?.label}_${i + 1}(${phase.toFixed(1)}°)`, color, !isLast);
       }
     } else {
@@ -84,6 +107,9 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         totalCycles,
         startTime,
         phaseShift: _phaseShift,
+        offset,
+        edgePercent,
+        dampingTau,
       }, `${WAVE_TYPES.find(w => w.value === type)?.label}`);
     }
   };
@@ -153,11 +179,23 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       </div>
 
-      {/* 占空比参数（方波和Ramp波） */}
-      {(type === 'square' || type === 'ramp') && (
+      {/* 直流偏置（所有波形通用） */}
+      <div className="mb-2">
+        <Label className="text-xs text-gray-600 mb-1 block">直流偏置</Label>
+        <Input
+          type="number"
+          step="0.1"
+          value={offset}
+          onChange={(e) => setOffset(parseFloat(e.target.value) || 0)}
+          className="h-8"
+        />
+      </div>
+
+      {/* 占空比参数 */}
+      {DUTY_TYPES.includes(type) && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">
-            {type === 'square' ? '占空比 (%)' : '上升占空比 (%)'}
+            {DUTY_LABELS[type]}
           </Label>
           <Input
             type="number"
@@ -172,6 +210,48 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
               类似电感电流：上升沿占空比，下降沿为剩余时间
             </div>
           )}
+          {type === 'triangle' && (
+            <div className="text-xs text-gray-500 mt-1">
+              50% 为对称三角波，100% 等效锯齿波
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 梯形波边沿时间 */}
+      {type === 'trapezoid' && (
+        <div className="mb-2">
+          <Label className="text-xs text-gray-600 mb-1 block">边沿时间占比 (%)</Label>
+          <Input
+            type="number"
+            min="0.1"
+            max="40"
+            step="0.5"
+            value={edgePercent}
+            onChange={(e) => setEdgePercent(parseFloat(e.target.value) || 10)}
+            className="h-8"
+          />
+          <div className="text-xs text-gray-500 mt-1">
+            单个上升/下降沿占周期的百分比
+          </div>
+        </div>
+      )}
+
+      {/* 阻尼振荡衰减时间常数 */}
+      {type === 'damped' && (
+        <div className="mb-2">
+          <Label className="text-xs text-gray-600 mb-1 block">衰减时间常数 τ（周期数）</Label>
+          <Input
+            type="number"
+            min="0.1"
+            step="0.5"
+            value={dampingTau}
+            onChange={(e) => setDampingTau(parseFloat(e.target.value) || 2)}
+            className="h-8"
+          />
+          <div className="text-xs text-gray-500 mt-1">
+            幅度按 e^(-t/τT) 衰减，τ 越大振铃持续越久
+          </div>
         </div>
       )}
 

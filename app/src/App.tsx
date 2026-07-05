@@ -18,60 +18,47 @@ interface TooltipButtonProps {
 const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, position = 'bottom' }) => {
   const [show, setShow] = useState(false);
   const buttonRef = React.useRef<HTMLDivElement>(null);
+  const tooltipRef = React.useRef<HTMLDivElement>(null);
   const [tooltipPos, setTooltipPos] = React.useState({ x: 0, y: 0 });
-  
-  const updatePosition = () => {
-    if (buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      const tooltipWidth = 200; // 估计宽度
-      const tooltipHeight = 30; // 估计高度
-      
-      let x = rect.left + rect.width / 2;
-      let y = rect.top;
-      
-      if (position === 'bottom') {
-        y = rect.bottom + 8;
-        x = rect.left + rect.width / 2;
-      } else if (position === 'top') {
-        y = rect.top - tooltipHeight - 8;
-        x = rect.left + rect.width / 2;
-      }
-      
-      // 确保不超出屏幕
-      x = Math.max(tooltipWidth / 2, Math.min(window.innerWidth - tooltipWidth / 2, x));
-      
-      setTooltipPos({ x, y });
-    }
-  };
-  
-  React.useEffect(() => {
-    if (show) {
-      updatePosition();
-    }
-  }, [show]);
-  
+
+  // 渲染后用提示框的实际尺寸定位，避免长文字超出屏幕边界
+  React.useLayoutEffect(() => {
+    if (!show || !buttonRef.current || !tooltipRef.current) return;
+
+    const rect = buttonRef.current.getBoundingClientRect();
+    const tipWidth = tooltipRef.current.offsetWidth;
+    const tipHeight = tooltipRef.current.offsetHeight;
+
+    let x = rect.left + rect.width / 2;
+    const y = position === 'bottom' ? rect.bottom + 8 : rect.top - tipHeight - 8;
+
+    // 左右都不超出屏幕（留8px边距）
+    x = Math.max(tipWidth / 2 + 8, Math.min(window.innerWidth - tipWidth / 2 - 8, x));
+
+    setTooltipPos({ x, y });
+  }, [show, position, tooltip]);
+
   return (
-    <div 
+    <div
       ref={buttonRef}
       className="relative inline-block"
-      onMouseEnter={() => {
-        updatePosition();
-        setShow(true);
-      }}
+      onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
     >
       {children}
       {show && (
-        <div 
+        <div
+          ref={tooltipRef}
           className="fixed z-[100] px-3 py-2 bg-gray-800 text-white text-xs rounded whitespace-nowrap pointer-events-none"
-          style={{ 
-            left: tooltipPos.x, 
+          style={{
+            left: tooltipPos.x,
             top: tooltipPos.y,
-            transform: position === 'bottom' ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+            transform: 'translate(-50%, 0)',
+            visibility: tooltipPos.x === 0 ? 'hidden' : 'visible', // 首帧测量前不闪烁
           }}
         >
           {tooltip}
-          <div 
+          <div
             className="absolute w-2 h-2 bg-gray-800 rotate-45"
             style={{
               left: '50%',
@@ -142,6 +129,7 @@ function App() {
     toggleGroupVisibility,
     toggleSegmentSelection,
     clearSegmentSelection,
+    selectSegmentsInRect,
     deleteSelectedSegments,
     setIsDraggingSelected,
     saveToHistory,
@@ -153,11 +141,12 @@ function App() {
     confirmCopyPreview,
     cancelCopyPreview,
     selectedSegments,
-    calculateWaveforms,
+    calculateExpression,
     clearAll,
     undo,
     redo,
     downloadSVG,
+    downloadPNG,
     downloadJSON,
     importData,
     generateWaveform,
@@ -169,6 +158,10 @@ function App() {
   const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // 拖动中点创建曲线
   // 本次拖动是否实际改动了线段（决定松手时要不要存撤销历史）
   const dragChangedRef = React.useRef(false);
+
+  // 框选状态（选择模式下拖拽空白处，世界坐标不吸附）
+  const [marquee, setMarquee] = useState<{ start: Point; end: Point } | null>(null);
+  const marqueeAdditiveRef = React.useRef(false);
 
   // 画布平移状态（中键拖拽或空格+左键拖拽）
   const [isPanning, setIsPanning] = useState(false);
@@ -562,10 +555,13 @@ function App() {
         }
         toggleSegmentSelection(segmentId, e.shiftKey);
       } else {
-        // 点击空白处，如果不按Shift则清除选择
+        // 点击空白处：开始框选（不吸附格点）；不按Shift先清除已有选择
         if (!e.shiftKey) {
           clearSegmentSelection();
         }
+        const rawPos = getMouseWorldPos(e);
+        marqueeAdditiveRef.current = e.shiftKey;
+        setMarquee({ start: rawPos, end: rawPos });
       }
     }
   }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, copyingSegments.length, setCopyStartPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
@@ -617,6 +613,9 @@ function App() {
       // 拖动端点
       moveSegmentEndpoint(draggingEndpoint.segmentId, draggingEndpoint.point, snapped);
       dragChangedRef.current = true;
+    } else if (marquee) {
+      // 框选中：更新矩形（用未吸附的真实坐标）
+      setMarquee({ start: marquee.start, end: worldPos });
     } else if (isDraggingSelected && dragStartPoint) {
       // 拖动移动选中的线段
       const rawDeltaX = snapped.x - dragStartPoint.x;
@@ -647,12 +646,22 @@ function App() {
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
     }
-  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport]);
+  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
       setIsPanning(false);
       panStartRef.current = null;
+      return;
+    }
+    if (marquee) {
+      // 框选结束：拖出的矩形超过几个像素才算框选，否则视为单纯点击空白
+      const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scale;
+      const pxH = Math.abs(marquee.end.y - marquee.start.y) * viewport.scale;
+      if (pxW > 4 || pxH > 4) {
+        selectSegmentsInRect(marquee.start, marquee.end, marqueeAdditiveRef.current);
+      }
+      setMarquee(null);
       return;
     }
     if (isDrawing && drawStart && currentMouse) {
@@ -703,7 +712,7 @@ function App() {
       }
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scale, selectSegmentsInRect]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -722,10 +731,11 @@ function App() {
     edit: '先选组，再拖动端点/中点/控制点',
     delete: '点击线段删除',
     moveGroup: '拖动整组波形移动',
-    select: '点击选中，Shift+点击连选，拖动移动，Delete删除，Ctrl+C复制',
+    select: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制',
     undo: '撤销上一步操作',
     redo: '恢复上一步操作',
     svg: '导出SVG图片，可在Visio中编辑',
+    png: '导出高分辨率PNG图片（3倍分辨率）',
     import: '导入波形数据，继续上次编辑',
     export: '导出波形数据，方便下次编辑',
   };
@@ -764,6 +774,11 @@ function App() {
             <TooltipButton tooltip={TOOLTIPS.svg}>
               <Button variant="outline" size="sm" onClick={() => downloadSVG()} className="flex items-center gap-1">
                 <Image className="w-4 h-4" />SVG
+              </Button>
+            </TooltipButton>
+            <TooltipButton tooltip={TOOLTIPS.png}>
+              <Button variant="outline" size="sm" onClick={() => downloadPNG()} className="flex items-center gap-1">
+                <Image className="w-4 h-4" />PNG
               </Button>
             </TooltipButton>
             <input type="file" id="import-json" accept=".json" className="hidden" onChange={(e) => {
@@ -848,6 +863,7 @@ function App() {
                 onDoubleClick={handleDoubleClick}
                 onZoomChange={handleZoom}
                 panning={isPanning ? 'active' : spaceHeld ? 'ready' : null}
+                selectionRect={marquee}
                 canvasRef={canvasRef}
               />
             </div>
@@ -901,7 +917,7 @@ function App() {
               onDeleteGroup={deleteGroup}
               onToggleGroupVisibility={toggleGroupVisibility}
               onSelectGroup={handleSelectGroup}
-              onCalculateWaveforms={calculateWaveforms}
+              onCalculateWaveforms={calculateExpression}
               onClearAll={clearAll}
               onDuplicateGroup={duplicateGroup}
               onRenameGroup={renameGroup}

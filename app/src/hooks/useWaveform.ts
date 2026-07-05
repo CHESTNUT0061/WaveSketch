@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcTerm, ToolMode } from '@/types/waveform';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode } from '@/types/waveform';
 import type { WaveformType } from '@/components/WaveformGenerator';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
@@ -10,6 +10,37 @@ export const MIN_SCALE = BASE_SCALE * 0.1;  // 10%
 export const MAX_SCALE = BASE_SCALE * 10;   // 1000%
 
 const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scale: BASE_SCALE };
+
+const DEFAULT_AXIS_CONFIG: AxisConfig = {
+  xUnit: 't',
+  yUnit: 'A',
+  xGridSize: 0.5,      // 次格点（最小格点）
+  yGridSize: 0.5,
+  xMajorGridSize: 2,   // 主格点（显示数字）
+  yMajorGridSize: 2,
+};
+
+// localStorage 自动保存
+const DRAFT_KEY = 'waveform-draft-v1';
+
+interface Draft {
+  segments: LineSegment[];
+  groups: WaveformGroup[];
+  axisConfig?: Partial<AxisConfig>;
+  viewport?: Partial<Viewport>;
+}
+
+function loadDraft(): Draft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!Array.isArray(d.segments) || !Array.isArray(d.groups)) return null;
+    return d as Draft;
+  } catch {
+    return null;
+  }
+}
 
 const COLORS = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -23,11 +54,14 @@ interface HistoryState {
 }
 
 export function useWaveform() {
-  const [segments, setSegments] = useState<LineSegment[]>([]);
-  const [groups, setGroups] = useState<WaveformGroup[]>([]);
-  
-  // 历史记录（用于撤销/恢复）- 使用 ref 避免闭包问题
-  const historyRef = useRef<HistoryState[]>([{ segments: [], groups: [] }]);
+  // 页面加载时从 localStorage 恢复草稿（只读一次）
+  const [draft] = useState(loadDraft);
+
+  const [segments, setSegments] = useState<LineSegment[]>(draft?.segments ?? []);
+  const [groups, setGroups] = useState<WaveformGroup[]>(draft?.groups ?? []);
+
+  // 历史记录（用于撤销/恢复）- 使用 ref 避免闭包问题；以恢复的草稿为撤销基线
+  const historyRef = useRef<HistoryState[]>([{ segments: draft?.segments ?? [], groups: draft?.groups ?? [] }]);
   const historyIndexRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -46,16 +80,31 @@ export function useWaveform() {
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
   }, []);
   
-  const [axisConfig, setAxisConfig] = useState<AxisConfig>({
-    xUnit: 't',
-    yUnit: 'A',
-    xGridSize: 0.5,      // 次格点（最小格点）
-    yGridSize: 0.5,
-    xMajorGridSize: 2,   // 主格点（显示数字）
-    yMajorGridSize: 2,
-  });
+  const [axisConfig, setAxisConfig] = useState<AxisConfig>(() =>
+    draft?.axisConfig ? { ...DEFAULT_AXIS_CONFIG, ...draft.axisConfig } : DEFAULT_AXIS_CONFIG
+  );
   // 无限画布视口（平移中心 + 缩放）
-  const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
+  const [viewport, setViewport] = useState<Viewport>(() =>
+    draft?.viewport
+      ? {
+          centerX: draft.viewport.centerX ?? 0,
+          centerY: draft.viewport.centerY ?? 0,
+          scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, draft.viewport.scale || BASE_SCALE)),
+        }
+      : DEFAULT_VIEWPORT
+  );
+
+  // 自动保存草稿到 localStorage（防抖500ms）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, axisConfig, viewport }));
+      } catch {
+        // 存储满或被禁用时静默失败，不影响正常使用
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [segments, groups, axisConfig, viewport]);
   const [mode, setMode] = useState<ToolMode>('draw');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
@@ -404,77 +453,124 @@ export function useWaveform() {
     ));
   }, []);
 
-  // 波形运算（加减 + 每项可乘常数系数，如 A×2 - B×0.5）
-  const calculateWaveforms = useCallback((expression: string, terms: CalcTerm[], operators: ('+' | '-')[]) => {
-    if (terms.length === 0) return;
+  // 波形表达式运算（RPN求值，支持 +、-、×、括号、常数，如 (A + B) × 0.5 - 1）
+  const calculateExpression = useCallback((expression: string, rpn: CalcRpnToken[]) => {
+    if (rpn.length === 0) return;
 
-    // 获取每一项的点数据和系数
-    const termPoints: { scale: number; points: Point[] }[] = [];
+    // 收集表达式中引用的组的点数据（按x排序，真实值不吸附）
+    const groupPointsMap = new Map<string, Point[]>();
+    for (const tk of rpn) {
+      if (tk.t === 'g' && !groupPointsMap.has(tk.id)) {
+        const group = groups.find(g => g.id === tk.id);
+        if (!group) return; // 组已被删除，放弃计算
 
-    for (const term of terms) {
-      const group = groups.find(g => g.id === term.groupId);
-      if (!group) return; // 组已被删除，项与运算符会错位，直接放弃
+        const points: Point[] = [];
+        segments.filter(s => group.segments.includes(s.id)).forEach(s => {
+          points.push(s.start, s.end);
+          if (s.control) points.push(s.control);
+        });
+        points.sort((a, b) => a.x - b.x);
+        groupPointsMap.set(tk.id, points);
+      }
+    }
+    if (groupPointsMap.size === 0) return;
 
-      const groupSegments = segments.filter(s => group.segments.includes(s.id));
-      const points: Point[] = [];
+    // 所有组x坐标的并集，容差合并近重复值（消除浮点误差产生的细碎线段）
+    const xs: number[] = [];
+    groupPointsMap.forEach(pts => pts.forEach(p => xs.push(p.x)));
+    xs.sort((a, b) => a - b);
+    const uniqX: number[] = [];
+    for (const x of xs) {
+      if (uniqX.length === 0 || x - uniqX[uniqX.length - 1] > 1e-9) uniqX.push(x);
+    }
+    if (uniqX.length < 2) return;
 
-      groupSegments.forEach(s => {
-        points.push(s.start, s.end);
-        if (s.control) points.push(s.control);
-      });
-
-      termPoints.push({ scale: term.scale, points });
+    // 表达式含"波形×波形"时（如瞬时功率 V×I），结果是分段二次的，
+    // 只在端点采样会失真——每段额外插2个采样点
+    const typeStack: boolean[] = [];
+    let hasWaveMul = false;
+    for (const tk of rpn) {
+      if (tk.t === 'g') typeStack.push(true);
+      else if (tk.t === 'c') typeStack.push(false);
+      else {
+        const b = typeStack.pop() ?? false;
+        const a = typeStack.pop() ?? false;
+        if (tk.v === '×' && a && b) hasWaveMul = true;
+        typeStack.push(a || b);
+      }
+    }
+    let sampleXs = uniqX;
+    if (hasWaveMul) {
+      sampleXs = [];
+      for (let i = 0; i < uniqX.length - 1; i++) {
+        sampleXs.push(uniqX[i]);
+        sampleXs.push(uniqX[i] + (uniqX[i + 1] - uniqX[i]) / 3);
+        sampleXs.push(uniqX[i] + (2 * (uniqX[i + 1] - uniqX[i])) / 3);
+      }
+      sampleXs.push(uniqX[uniqX.length - 1]);
     }
 
-    // 收集所有x坐标
-    const allX = new Set<number>();
-    termPoints.forEach(tp => {
-      tp.points.forEach(p => allX.add(p.x));
-    });
-    if (allX.size < 2) return;
-
-    // 计算每个x位置的结果
-    const resultPoints: Point[] = [];
-
-    allX.forEach(x => {
-      let resultY = interpolateY(x, termPoints[0].points) * termPoints[0].scale;
-
-      // 依次应用运算符
-      for (let i = 0; i < operators.length; i++) {
-        const nextY = interpolateY(x, termPoints[i + 1].points) * termPoints[i + 1].scale;
-        if (operators[i] === '+') {
-          resultY += nextY;
+    // RPN求值
+    const evalAt = (x: number): number => {
+      const st: number[] = [];
+      for (const tk of rpn) {
+        if (tk.t === 'g') {
+          st.push(interpolateY(x, groupPointsMap.get(tk.id)!));
+        } else if (tk.t === 'c') {
+          st.push(tk.v);
         } else {
-          resultY -= nextY;
+          const b = st.pop() ?? 0;
+          const a = st.pop() ?? 0;
+          st.push(tk.v === '+' ? a + b : tk.v === '-' ? a - b : a * b);
         }
       }
+      return st[0] ?? 0;
+    };
 
-      resultPoints.push({ x, y: resultY });
-    });
+    const resultPoints = sampleXs.map(x => ({ x, y: evalAt(x) })).filter(p => Number.isFinite(p.y));
+    if (resultPoints.length < 2) return;
 
-    resultPoints.sort((a, b) => a.x - b.x);
-    
-    // 创建新组
-    const newGroupId = createGroup(expression);
-    
-    // 添加线段到新组
+    // 直接构建新组和线段，一次性提交（只产生一条撤销历史）
+    const newGroupId = generateId();
+    const newSegments: LineSegment[] = [];
     for (let i = 0; i < resultPoints.length - 1; i++) {
-      addSegment(resultPoints[i], resultPoints[i + 1], 'line', newGroupId);
+      const start = resultPoints[i];
+      const end = resultPoints[i + 1];
+      if (start.x === end.x && start.y === end.y) continue; // 跳过零长线段
+      newSegments.push({ id: generateId(), start, end, type: 'line', groupId: newGroupId });
     }
-  }, [groups, segments, createGroup, addSegment]);
+    if (newSegments.length === 0) return;
 
-  // 插值获取y值
+    const newGroup: WaveformGroup = {
+      id: newGroupId,
+      name: expression,
+      color: getNextColor(),
+      visible: true,
+      segments: newSegments.map(s => s.id),
+    };
+
+    setSegments(prev => [...prev, ...newSegments]);
+    setGroups(prev => [...prev, newGroup]);
+    setSelectedGroup(newGroupId);
+    setTimeout(saveToHistory, 0);
+  }, [groups, segments, getNextColor, saveToHistory]);
+
+  // 插值获取y值（points须已按x排序；超出范围返回0）
   const interpolateY = (x: number, points: Point[]): number => {
-    points.sort((a, b) => a.x - b.x);
-    
     for (let i = 0; i < points.length - 1; i++) {
       if (x >= points[i].x && x <= points[i + 1].x) {
-        const t = (x - points[i].x) / (points[i + 1].x - points[i].x);
+        const dx = points[i + 1].x - points[i].x;
+        // 垂直沿（方波开关沿）或重复点：区间零宽会除零得NaN，取后一个点的电平
+        if (dx < 1e-12) {
+          if (Math.abs(x - points[i].x) < 1e-12) return points[i + 1].y;
+          continue;
+        }
+        const t = (x - points[i].x) / dx;
         return points[i].y + t * (points[i + 1].y - points[i].y);
       }
     }
-    
-    return points.find(p => p.x === x)?.y || 0;
+
+    return points.find(p => Math.abs(p.x - x) < 1e-12)?.y || 0;
   };
 
   // 切换线段选择（用于组内复制）
@@ -494,6 +590,29 @@ export function useWaveform() {
   const clearSegmentSelection = useCallback(() => {
     setSelectedSegments(new Set());
   }, []);
+
+  // 框选：选中完全落在矩形内的线段（additive=true 时追加到现有选择）
+  const selectSegmentsInRect = useCallback((corner1: Point, corner2: Point, additive: boolean) => {
+    const xLo = Math.min(corner1.x, corner2.x);
+    const xHi = Math.max(corner1.x, corner2.x);
+    const yLo = Math.min(corner1.y, corner2.y);
+    const yHi = Math.max(corner1.y, corner2.y);
+    const inRect = (p: Point) => p.x >= xLo && p.x <= xHi && p.y >= yLo && p.y <= yHi;
+
+    const ids = segments
+      .filter(s => {
+        const g = groups.find(g => g.id === s.groupId);
+        if (g && !g.visible) return false; // 隐藏组不参与框选
+        return inRect(s.start) && inRect(s.end);
+      })
+      .map(s => s.id);
+
+    setSelectedSegments(prev => {
+      const next = additive ? new Set(prev) : new Set<string>();
+      ids.forEach(id => next.add(id));
+      return next;
+    });
+  }, [segments, groups]);
 
   // 批量删除选中的线段（Delete/Backspace 键）
   const deleteSelectedSegments = useCallback(() => {
@@ -753,8 +872,8 @@ export function useWaveform() {
     setSelectedSegments(new Set());
   }, [saveToHistory]);
 
-  // 导出为SVG（范围自动取可见波形的包围盒，向外对齐到主格点）
-  const exportToSVG = useCallback((): string => {
+  // 构建导出用SVG（范围自动取可见波形的包围盒，向外对齐到主格点）
+  const buildSVG = useCallback((): { svg: string; width: number; height: number } => {
     const padding = 60;
 
     // 计算可见线段的包围盒
@@ -938,8 +1057,10 @@ export function useWaveform() {
     svg += `  </g>
 </svg>`;
 
-    return svg;
+    return { svg, width, height };
   }, [segments, groups, axisConfig]);
+
+  const exportToSVG = useCallback((): string => buildSVG().svg, [buildSVG]);
 
   // 下载SVG文件
   const downloadSVG = useCallback((filename: string = 'waveform.svg') => {
@@ -954,6 +1075,39 @@ export function useWaveform() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   }, [exportToSVG]);
+
+  // 下载PNG文件（高分辨率：默认3倍渲染）
+  const downloadPNG = useCallback((filename: string = 'waveform.png', scaleFactor: number = 3) => {
+    const { svg, width, height } = buildSVG();
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scaleFactor);
+      canvas.height = Math.round(height * scaleFactor);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(svgUrl); return; }
+      ctx.scale(scaleFactor, scaleFactor);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(svgUrl);
+
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const pngUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = pngUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(pngUrl);
+      }, 'image/png');
+    };
+    img.onerror = () => URL.revokeObjectURL(svgUrl);
+    img.src = svgUrl;
+  }, [buildSVG]);
 
   // 导出波形数据为JSON对象
   const exportData = useCallback(() => {
@@ -1035,12 +1189,16 @@ export function useWaveform() {
       totalCycles: number;
       startTime: number;
       phaseShift: number;
+      offset?: number;      // 直流偏置（所有波形通用）
+      edgePercent?: number; // 梯形波：单边沿时间占周期百分比
+      dampingTau?: number;  // 阻尼振荡：衰减时间常数（以周期数计）
     },
     groupName: string,
     customColor?: string,
     skipHistorySave?: boolean
   ) => {
     const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
+    const offset = params.offset ?? 0;
     const phaseOffset = (phaseShift / 360) * period; // 转换为时间偏移
     
     // 创建新组
@@ -1105,21 +1263,86 @@ export function useWaveform() {
       const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
       const dt = period / samplesPerPeriod;
       const phaseRad = (phaseShift * Math.PI) / 180;
-      
+
       for (let i = 0; i <= totalSamples; i++) {
         const t = startTime + i * dt;
         const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
         const y = amplitude * Math.sin(normalizedT);
         points.push({ x: t, y });
       }
+    } else if (type === 'triangle') {
+      // 三角波：占空比控制峰值位置（50%=对称三角，作PWM载波）
+      const peakTime = (dutyCycle / 100) * period;
+      for (let cycle = 0; cycle < totalCycles; cycle++) {
+        const cycleStart = startTime + cycle * period + phaseOffset;
+        points.push({ x: cycleStart, y: -amplitude });
+        points.push({ x: cycleStart + peakTime, y: amplitude });
+      }
+      points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
+    } else if (type === 'sawtooth') {
+      // 锯齿波：整周期线性上升，瞬时回落（PWM载波/斜坡补偿）
+      for (let cycle = 0; cycle < totalCycles; cycle++) {
+        const cycleStart = startTime + cycle * period + phaseOffset;
+        points.push({ x: cycleStart, y: -amplitude });
+        points.push({ x: cycleStart + period, y: amplitude });
+        points.push({ x: cycleStart + period, y: -amplitude });
+      }
+    } else if (type === 'trapezoid') {
+      // 梯形波：带有限上升/下降沿的开关波形（开关节点电压、栅极驱动）
+      const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
+      const edgeTime = edgeFrac * period;
+      // 高电平时间 = 占空比时间 - 一个边沿时间（近似以中点计占空比）
+      const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
+      const lowLevel = -amplitude;
+      const highLevel = amplitude;
+
+      for (let cycle = 0; cycle < totalCycles; cycle++) {
+        const cycleStart = startTime + cycle * period + phaseOffset;
+        points.push({ x: cycleStart, y: lowLevel });
+        points.push({ x: cycleStart + edgeTime, y: highLevel });
+        points.push({ x: cycleStart + edgeTime + highTime, y: highLevel });
+        points.push({ x: cycleStart + 2 * edgeTime + highTime, y: lowLevel });
+        points.push({ x: cycleStart + period, y: lowLevel });
+      }
+    } else if (type === 'rectified') {
+      // 整流正弦 |A·sin|（整流器输出）
+      const samplesPerPeriod = 20;
+      const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
+      const dt = period / samplesPerPeriod;
+      const phaseRad = (phaseShift * Math.PI) / 180;
+
+      for (let i = 0; i <= totalSamples; i++) {
+        const t = startTime + i * dt;
+        const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
+        points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
+      }
+    } else if (type === 'damped') {
+      // 阻尼振荡 A·e^(-t/(τT))·sin(2πt/T)（开关节点振铃、LC谐振）
+      const tau = Math.max(0.1, params.dampingTau ?? 2) * period; // 时间常数
+      const samplesPerPeriod = 40;
+      const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
+      const dt = period / samplesPerPeriod;
+      const phaseRad = (phaseShift * Math.PI) / 180;
+
+      for (let i = 0; i <= totalSamples; i++) {
+        const t = i * dt;
+        const y = amplitude * Math.exp(-t / tau) * Math.sin((t / period) * 2 * Math.PI + phaseRad);
+        points.push({ x: startTime + t, y });
+      }
     }
-    
-    // 将点连接成线段
-    for (let i = 0; i < points.length - 1; i++) {
+
+    // 直流偏置
+    const shifted = offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
+
+    // 将点连接成线段（跳过零长线段）
+    for (let i = 0; i < shifted.length - 1; i++) {
+      const start = shifted[i];
+      const end = shifted[i + 1];
+      if (start.x === end.x && start.y === end.y) continue;
       const newSegment: LineSegment = {
         id: generateId(),
-        start: points[i],
-        end: points[i + 1],
+        start,
+        end,
         type: 'line',
         groupId: newGroupId,
       };
@@ -1203,6 +1426,7 @@ export function useWaveform() {
     toggleGroupVisibility,
     toggleSegmentSelection,
     clearSegmentSelection,
+    selectSegmentsInRect,
     deleteSelectedSegments,
     duplicateSelectedSegments,
     startCopyMode,
@@ -1216,12 +1440,13 @@ export function useWaveform() {
     updateCopyPreviewOffset,
     confirmCopyPreview,
     cancelCopyPreview,
-    calculateWaveforms,
+    calculateExpression,
     clearAll,
     undo,
     redo,
     exportToSVG,
     downloadSVG,
+    downloadPNG,
     exportData,
     downloadJSON,
     importData,

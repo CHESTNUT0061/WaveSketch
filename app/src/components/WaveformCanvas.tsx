@@ -24,6 +24,7 @@ interface WaveformCanvasProps {
   onDoubleClick: (e: React.MouseEvent) => void;
   onZoomChange?: (factor: number, screenPos?: Point) => void;
   panning?: 'ready' | 'active' | null; // 平移状态：ready=按住空格待拖，active=拖拽中
+  selectionRect?: { start: Point; end: Point } | null; // 框选矩形（世界坐标）
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
@@ -49,6 +50,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onDoubleClick,
   onZoomChange,
   panning = null,
+  selectionRect = null,
   canvasRef,
 }) => {
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
@@ -336,10 +338,27 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     
     // 绘制复制预览
     drawCopyPreview(ctx, canvas);
-    
+
     // 绘制预览
     drawPreview(ctx, canvas);
-  }, [segments, groups, selectedSegments, axisConfig, activeSegment, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawCopyPreview, drawPreview, canvasSize]);
+
+    // 绘制框选矩形（蓝色虚线 + 半透明填充）
+    if (selectionRect) {
+      const p1 = worldToScreen(selectionRect.start, canvas);
+      const p2 = worldToScreen(selectionRect.end, canvas);
+      const x = Math.min(p1.x, p2.x);
+      const y = Math.min(p1.y, p2.y);
+      const w = Math.abs(p2.x - p1.x);
+      const h = Math.abs(p2.y - p1.y);
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+    }
+  }, [segments, groups, selectedSegments, axisConfig, activeSegment, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawCopyPreview, drawPreview, canvasSize, selectionRect, worldToScreen]);
 
   React.useEffect(() => {
     const updateSize = () => {
