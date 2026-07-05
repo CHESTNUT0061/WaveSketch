@@ -30,6 +30,12 @@ A web-based tool for sketching idealized waveforms for power electronics papers 
   - **PNG** — 3 倍分辨率，可直接用于论文和 PPT
   - **JSON** — 存档备份，可导入继续编辑
 
+## Feedback / 意见反馈
+
+Found a bug or have a feature request? Please open a [GitHub Issue](https://github.com/CHESTNUT0061/WaveSketch/issues) — Chinese or English both welcome.
+
+欢迎通过 [GitHub Issue](https://github.com/CHESTNUT0061/WaveSketch/issues) 反馈问题或提功能建议，中英文皆可。
+
 ## License
 
 [MIT](LICENSE)

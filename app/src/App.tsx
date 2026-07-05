@@ -1020,10 +1020,15 @@ function App() {
               · 访客 <span id="busuanzi_value_site_uv" /> 人
             </span>
           </div>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <a href={WPD_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
               推荐：曲线取点工具 WebPlotDigitizer
             </a>
+            {GITHUB_REPO_URL && (
+              <a href={`${GITHUB_REPO_URL}/issues`} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
+                意见反馈
+              </a>
+            )}
             {GITHUB_REPO_URL && (
               <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
                 GitHub
