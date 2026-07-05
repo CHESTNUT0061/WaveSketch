@@ -8,8 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
 
-// 站点链接（GitHub 仓库地址创建后填入，留空则不显示）
-const GITHUB_REPO_URL = '';
+// 站点链接
+const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
 const WPD_URL = 'https://apps.automeris.io/wpd4/';
 
 // 按钮说明组件

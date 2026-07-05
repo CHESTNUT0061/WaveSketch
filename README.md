@@ -1,4 +1,6 @@
-# 波形绘制工具
+# WaveSketch — 波形绘制工具
+
+A web-based tool for sketching idealized waveforms for power electronics papers and presentations. Draw, generate, and compute waveforms; export publication-ready SVG (Visio-editable) and high-res PNG.
 
 面向电力电子 / 电源芯片科研场景的波形示意图绘制工具。绘制、编辑、生成常见波形（方波、三角波、梯形波、阻尼振荡等），支持波形算术运算（加减、乘常数、括号表达式、瞬时功率 V×I），导出 SVG（Visio 可编辑、按波形组分组）和高分辨率 PNG。
 

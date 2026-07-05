@@ -31,6 +31,8 @@ jobs:
         run: npm run build
         working-directory: app
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # 首次运行自动启用 Pages，无需手动到 Settings 开启
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/dist
