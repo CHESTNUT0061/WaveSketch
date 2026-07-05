@@ -1,26 +1,33 @@
 # WaveSketch — 波形绘制工具
 
+**🔗 在线使用（无需安装）：https://CHESTNUT0061.github.io/WaveSketch/**
+
 A web-based tool for sketching idealized waveforms for power electronics papers and presentations. Draw, generate, and compute waveforms; export publication-ready SVG (Visio-editable) and high-res PNG.
 
-面向电力电子 / 电源芯片科研场景的波形示意图绘制工具。绘制、编辑、生成常见波形（方波、三角波、梯形波、阻尼振荡等），支持波形算术运算（加减、乘常数、括号表达式、瞬时功率 V×I），导出 SVG（Visio 可编辑、按波形组分组）和高分辨率 PNG。
-
-## 本地运行
-
-```bash
-cd app
-npm install
-npm run dev
-```
-
-## 部署
-
-推送到 GitHub 后，在仓库 Settings → Pages 中将 Source 设为 **GitHub Actions**，之后每次 push 自动构建部署（见 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)）。
+面向电力电子 / 电源芯片科研场景的波形示意图绘制工具。打开网页即用，数据自动保存在浏览器本地。
 
 ## 主要功能
 
-- 无限画布：中键/空格+拖拽平移，滚轮以鼠标为中心缩放，一键复位/适应内容
-- 波形生成器：方波、Ramp、正弦、三角、锯齿、梯形、整流正弦、阻尼振荡，支持多相错相、直流偏置
-- 波形计算器：完整算术表达式（+、−、×、括号、常数），如 `(A + B) × 0.5`
-- 编辑：拖动端点/中点（贝塞尔曲线）、框选、批量删除、复制粘贴、整组移动
-- 自动保存到浏览器本地，刷新不丢失
-- 导出：SVG（按波形组分组，Visio 逐级取消组合）、PNG（3倍分辨率）、JSON（存档/导入）
+- **无限画布**：中键/空格+拖拽平移，滚轮以鼠标为中心缩放，一键复位/适应内容
+- **波形生成器**：方波、Ramp（电感电流）、正弦、三角、锯齿、梯形、整流正弦、阻尼振荡（振铃），支持多相错相、占空比、直流偏置
+- **波形计算器**：完整算术表达式（+、−、×、括号、常数），如 `(A + B) × 0.5`、瞬时功率 `V × I`
+- **编辑**：拖动端点/中点（贝塞尔曲线）、框选、批量删除、复制粘贴、整组移动
+- **自动保存**：所有内容实时存入浏览器本地，刷新不丢失
+- **导出**：
+  - **SVG** — 按波形组分组，粘贴进 Visio 后可逐级取消组合、单独编辑每条线段
+  - **PNG** — 3 倍分辨率，可直接用于论文和 PPT
+  - **JSON** — 存档备份，可导入继续编辑
+
+## 二次开发
+
+欢迎 fork。本项目基于 Vite + React + TypeScript：
+
+```bash
+cd app && npm install && npm run dev
+```
+
+推送到自己仓库的 main 分支后，在 Settings → Pages 将 Source 设为 GitHub Actions 即可自动部署。
+
+## License
+
+[MIT](LICENSE)
