@@ -125,7 +125,6 @@ export function useWaveform() {
   // 复制模式相关状态
   const [copyingSegments, setCopyingSegments] = useState<LineSegment[]>([]); // 正在拖动的复制线段
   const [copyOffset, setCopyOffset] = useState<Point>({ x: 0, y: 0 }); // 复制偏移量
-  const [copyStartPoint, setCopyStartPoint] = useState<Point | null>(null); // 复制起始点
   const [isDraggingSelected, setIsDraggingSelected] = useState(false); // 是否正在拖动选中的线段
   const [dragStartPoint, setDragStartPoint] = useState<Point | null>(null); // 拖动起始点
 
@@ -633,78 +632,6 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [selectedSegments, saveToHistory]);
 
-  // 开始复制模式 - 准备复制选中的线段
-  const startCopyMode = useCallback(() => {
-    if (selectedSegments.size === 0) return;
-    
-    const segmentsToCopy = segments.filter(s => selectedSegments.has(s.id));
-    if (segmentsToCopy.length === 0) return;
-    
-    // 创建临时复制的线段（用于拖动预览）
-    const tempSegments: LineSegment[] = segmentsToCopy.map(segment => ({
-      ...segment,
-      id: `temp-${segment.id}`, // 临时ID
-    }));
-    
-    setCopyingSegments(tempSegments);
-    setCopyOffset({ x: 0, y: 0 });
-  }, [selectedSegments, segments]);
-
-  // 更新复制偏移量
-  const updateCopyOffset = useCallback((deltaX: number, deltaY: number) => {
-    setCopyOffset({ x: deltaX, y: deltaY });
-  }, []);
-
-  // 确认复制 - 将临时线段变为正式线段
-  const confirmCopy = useCallback(() => {
-    if (copyingSegments.length === 0) return;
-    
-    // 获取第一个线段的组ID
-    const groupId = copyingSegments[0].groupId;
-    if (!groupId) return;
-    
-    const newSegmentIds: string[] = [];
-    
-    copyingSegments.forEach(segment => {
-      const newSegment: LineSegment = {
-        id: generateId(),
-        start: { x: segment.start.x + copyOffset.x, y: segment.start.y + copyOffset.y },
-        end: { x: segment.end.x + copyOffset.x, y: segment.end.y + copyOffset.y },
-        type: segment.type,
-        groupId: groupId,
-      };
-      if (segment.control) {
-        newSegment.control = { x: segment.control.x + copyOffset.x, y: segment.control.y + copyOffset.y };
-      }
-      
-      setSegments(prev => [...prev, newSegment]);
-      newSegmentIds.push(newSegment.id);
-      
-      // 更新组的线段列表
-      setGroups(prev => prev.map(g => 
-        g.id === groupId 
-          ? { ...g, segments: [...g.segments, newSegment.id] }
-          : g
-      ));
-    });
-    
-    // 清除复制状态
-    setCopyingSegments([]);
-    setCopyOffset({ x: 0, y: 0 });
-    setCopyStartPoint(null);
-    setSelectedSegments(new Set());
-    setTimeout(saveToHistory, 0);
-  }, [copyingSegments, copyOffset, saveToHistory]);
-
-  // 取消复制
-  const cancelCopy = useCallback(() => {
-    setCopyingSegments([]);
-    setCopyOffset({ x: 0, y: 0 });
-    setCopyStartPoint(null);
-    setIsDraggingSelected(false);
-    setDragStartPoint(null);
-  }, []);
-
   // 拖动移动选中的线段（不复制，只移动）
   const moveSelectedSegments = useCallback((deltaX: number, deltaY: number) => {
     if (selectedSegments.size === 0) return;
@@ -825,47 +752,6 @@ export function useWaveform() {
     setCopyOffset({ x: 0, y: 0 });
     setCopyPreviewOrigin(null);
   }, []);
-
-  // 复制选中的线段到同一组（组内复制）- 保留用于向后兼容
-  const duplicateSelectedSegments = useCallback(() => {
-    if (selectedSegments.size === 0) return;
-    
-    const segmentsToCopy = segments.filter(s => selectedSegments.has(s.id));
-    if (segmentsToCopy.length === 0) return;
-    
-    // 获取第一个线段的组ID
-    const groupId = segmentsToCopy[0].groupId;
-    if (!groupId) return;
-    
-    // 计算偏移（向右偏移2个格点单位）
-    const offsetX = axisConfig.xGridSize * 2;
-    
-    segmentsToCopy.forEach(segment => {
-      const newSegment: LineSegment = {
-        id: generateId(),
-        start: { x: segment.start.x + offsetX, y: segment.start.y },
-        end: { x: segment.end.x + offsetX, y: segment.end.y },
-        type: segment.type,
-        groupId: groupId,
-      };
-      if (segment.control) {
-        newSegment.control = { x: segment.control.x + offsetX, y: segment.control.y };
-      }
-      
-      setSegments(prev => [...prev, newSegment]);
-      
-      // 更新组的线段列表
-      setGroups(prev => prev.map(g => 
-        g.id === groupId 
-          ? { ...g, segments: [...g.segments, newSegment.id] }
-          : g
-      ));
-    });
-    
-    // 清除选择
-    setSelectedSegments(new Set());
-    setTimeout(saveToHistory, 0);
-  }, [selectedSegments, segments, axisConfig.xGridSize, saveToHistory]);
 
   // 清空所有
   const clearAll = useCallback(() => {
@@ -1396,12 +1282,10 @@ export function useWaveform() {
     canRedo,
     copyingSegments,
     copyOffset,
-    copyStartPoint,
     isDraggingSelected,
     dragStartPoint,
     isCopyPreview,
     copyPreviewOffset,
-    copyPreviewOrigin,
     clipboardSegments,
     saveToHistory,
     canvasRef,
@@ -1415,15 +1299,8 @@ export function useWaveform() {
     setDraggingControl,
     setMovingGroup,
     setMoveStartPoint,
-    setCopyStartPoint,
-    setCopyingSegments,
-    setCopyOffset,
-    setClipboardSegments,
     setIsDraggingSelected,
     setDragStartPoint,
-    setIsCopyPreview,
-    setCopyPreviewOffset,
-    setCopyPreviewOrigin,
     worldToScreen,
     screenToWorld,
     snapToGrid,
@@ -1444,11 +1321,6 @@ export function useWaveform() {
     clearSegmentSelection,
     selectSegmentsInRect,
     deleteSelectedSegments,
-    duplicateSelectedSegments,
-    startCopyMode,
-    updateCopyOffset,
-    confirmCopy,
-    cancelCopy,
     moveSelectedSegments,
     finishMoveSelectedSegments,
     copyToClipboard,
@@ -1460,10 +1332,8 @@ export function useWaveform() {
     clearAll,
     undo,
     redo,
-    exportToSVG,
     downloadSVG,
     downloadPNG,
-    exportData,
     downloadJSON,
     importData,
     generateWaveform,

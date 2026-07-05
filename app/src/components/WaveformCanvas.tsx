@@ -407,13 +407,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     e.target.dispatchEvent(mouseEvent);
   };
 
-  // 不同模式使用不同光标：选择=箭头，移组=抓手，其余=十字准星
+  // 不同模式使用不同光标：选择=箭头，移组/平移=白色抓手带黑边，其余=十字准星
   const CROSSHAIR_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath stroke='black' stroke-width='2' d='M12 0v24M0 12h24'/%3E%3C/svg%3E") 12 12, crosshair`;
+  // 抓手图标画两层：黑色粗描边打底 + 白色细描边覆盖，任何背景下都清晰可辨
+  const HAND_PATHS = `%3Cpath d='M18 11V6a2 2 0 0 0-4 0v5'/%3E%3Cpath d='M14 10V4a2 2 0 0 0-4 0v2'/%3E%3Cpath d='M10 10.5V6a2 2 0 0 0-4 0v8'/%3E%3Cpath d='m7 15-1.76-1.76a2 2 0 0 0-2.83 2.82l3.6 3.6C7.5 21.14 9.2 22 12 22h2a8 8 0 0 0 8-8V7a2 2 0 0 0-4 0v5'/%3E`;
+  const GRAB_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='black' stroke-width='3.5'%3E${HAND_PATHS}%3C/g%3E%3Cg stroke='white' stroke-width='1.8'%3E${HAND_PATHS}%3C/g%3E%3C/svg%3E") 12 12, grab`;
   const MODE_CURSORS: Record<WaveformCanvasProps['mode'], string> = {
     draw: CROSSHAIR_CURSOR,
     edit: CROSSHAIR_CURSOR,
     delete: CROSSHAIR_CURSOR,
-    moveGroup: 'grab',
+    moveGroup: GRAB_CURSOR,
     select: 'default',
   };
 
@@ -443,7 +446,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         style={{ 
           width: canvasSize.width, 
           height: canvasSize.height,
-          cursor: panning === 'active' ? 'grabbing' : panning === 'ready' ? 'grab' : MODE_CURSORS[mode]
+          cursor: panning ? GRAB_CURSOR : MODE_CURSORS[mode]
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}

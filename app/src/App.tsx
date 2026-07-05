@@ -113,8 +113,6 @@ function App() {
     setDraggingControl,
     setMovingGroup,
     setMoveStartPoint,
-    setCopyStartPoint,
-
     setDragStartPoint,
     screenToWorld,
     snapToGrid,
@@ -613,7 +611,7 @@ function App() {
         setMarquee({ start: rawPos, end: rawPos });
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, copyingSegments.length, setCopyStartPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // 画布平移中
