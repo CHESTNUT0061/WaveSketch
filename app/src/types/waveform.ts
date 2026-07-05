@@ -7,7 +7,7 @@ export interface LineSegment {
   id: string;
   start: Point;
   end: Point;
-  control?: Point; // 贝塞尔曲线控制点
+  control?: Point; // Bezier control point
   type: 'line' | 'curve';
   groupId?: string;
 }
@@ -23,23 +23,23 @@ export interface WaveformGroup {
 export interface AxisConfig {
   xUnit: string;
   yUnit: string;
-  xGridSize: number;      // 次格点（最小格点，用于吸附）
+  xGridSize: number;      // minor grid (snap unit)
   yGridSize: number;
-  xMajorGridSize: number; // 主格点（用于显示数字）
+  xMajorGridSize: number; // major grid (numbered ticks)
   yMajorGridSize: number;
 }
 
-// 无限画布视口：世界坐标中心 + 缩放（像素/世界单位）
+// Infinite-canvas viewport: world-space center + scale (px per world unit)
 export interface Viewport {
   centerX: number;
   centerY: number;
   scale: number;
 }
 
-// 波形计算器 RPN（逆波兰）token：g=波形组引用，c=常数，op=二元运算符
+// Calculator RPN token: g = waveform group ref, c = constant, op = binary operator
 export type CalcRpnToken =
   | { t: 'g'; id: string }
   | { t: 'c'; v: number }
   | { t: 'op'; v: '+' | '-' | '×' };
 
-export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select';
+export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';

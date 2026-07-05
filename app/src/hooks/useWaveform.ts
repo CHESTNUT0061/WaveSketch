@@ -4,7 +4,7 @@ import type { WaveformType } from '@/components/WaveformGenerator';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
-// 基准缩放：100% 时每个世界单位对应的像素数
+// Base scale: pixels per world unit at 100% zoom
 export const BASE_SCALE = 40;
 export const MIN_SCALE = BASE_SCALE * 0.1;  // 10%
 export const MAX_SCALE = BASE_SCALE * 10;   // 1000%
@@ -14,18 +14,18 @@ const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scale: BASE_SCALE }
 const DEFAULT_AXIS_CONFIG: AxisConfig = {
   xUnit: 't',
   yUnit: 'A',
-  xGridSize: 0.5,      // 次格点（最小格点）
+  xGridSize: 0.5,      // minor grid (snap unit)
   yGridSize: 0.5,
-  xMajorGridSize: 2,   // 主格点（显示数字）
+  xMajorGridSize: 2,   // major grid (numbered)
   yMajorGridSize: 2,
 };
 
-// XML 文本转义（组名、单位标签可能含特殊字符）
+// Escape XML text (group names / unit labels may contain special chars)
 const escapeXml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-// localStorage 自动保存
+// localStorage autosave
 const DRAFT_KEY = 'waveform-draft-v1';
 
 interface Draft {
@@ -52,34 +52,34 @@ const COLORS = [
   '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
 ];
 
-// 历史记录状态
+// History snapshot
 interface HistoryState {
   segments: LineSegment[];
   groups: WaveformGroup[];
 }
 
 export function useWaveform() {
-  // 页面加载时从 localStorage 恢复草稿（只读一次）
+  // Restore the draft from localStorage on load (read once)
   const [draft] = useState(loadDraft);
 
   const [segments, setSegments] = useState<LineSegment[]>(draft?.segments ?? []);
   const [groups, setGroups] = useState<WaveformGroup[]>(draft?.groups ?? []);
 
-  // 历史记录（用于撤销/恢复）- 使用 ref 避免闭包问题；以恢复的草稿为撤销基线
+  // Undo/redo history - kept in refs to avoid stale closures; the restored draft is the undo baseline
   const historyRef = useRef<HistoryState[]>([{ segments: draft?.segments ?? [], groups: draft?.groups ?? [] }]);
   const historyIndexRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   
-  // 用于获取最新状态的ref
+  // Refs mirroring the latest state
   const segmentsRef = useRef<LineSegment[]>([]);
   const groupsRef = useRef<WaveformGroup[]>([]);
   
-  // 同步ref和state
+  // Keep refs in sync with state
   segmentsRef.current = segments;
   groupsRef.current = groups;
   
-  // 更新撤销/恢复状态
+  // Update undo/redo availability
   const updateHistoryState = useCallback(() => {
     setCanUndo(historyIndexRef.current > 0);
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
@@ -88,7 +88,7 @@ export function useWaveform() {
   const [axisConfig, setAxisConfig] = useState<AxisConfig>(() =>
     draft?.axisConfig ? { ...DEFAULT_AXIS_CONFIG, ...draft.axisConfig } : DEFAULT_AXIS_CONFIG
   );
-  // 无限画布视口（平移中心 + 缩放）
+  // Infinite-canvas viewport (pan center + scale)
   const [viewport, setViewport] = useState<Viewport>(() =>
     draft?.viewport
       ? {
@@ -99,13 +99,13 @@ export function useWaveform() {
       : DEFAULT_VIEWPORT
   );
 
-  // 自动保存草稿到 localStorage（防抖500ms）
+  // Autosave the draft to localStorage (500ms debounce)
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, axisConfig, viewport }));
       } catch {
-        // 存储满或被禁用时静默失败，不影响正常使用
+        // Fail silently if storage is full or disabled
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -122,31 +122,31 @@ export function useWaveform() {
   const [selectedSegments, setSelectedSegments] = useState<Set<string>>(new Set());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 复制模式相关状态
-  const [copyingSegments, setCopyingSegments] = useState<LineSegment[]>([]); // 正在拖动的复制线段
-  const [copyOffset, setCopyOffset] = useState<Point>({ x: 0, y: 0 }); // 复制偏移量
-  const [isDraggingSelected, setIsDraggingSelected] = useState(false); // 是否正在拖动选中的线段
-  const [dragStartPoint, setDragStartPoint] = useState<Point | null>(null); // 拖动起始点
+  // Copy-mode state
+  const [copyingSegments, setCopyingSegments] = useState<LineSegment[]>([]); // segments being dragged as a copy
+  const [copyOffset, setCopyOffset] = useState<Point>({ x: 0, y: 0 }); // copy offset
+  const [isDraggingSelected, setIsDraggingSelected] = useState(false); // whether the selection is being dragged
+  const [dragStartPoint, setDragStartPoint] = useState<Point | null>(null); // drag start point
 
-  // 选择模式复制预览状态
-  const [isCopyPreview, setIsCopyPreview] = useState(false); // 是否正在显示复制预览
-  const [copyPreviewOffset, setCopyPreviewOffset] = useState<Point>({ x: 0, y: 0 }); // 复制预览偏移量
-  const [copyPreviewOrigin, setCopyPreviewOrigin] = useState<Point | null>(null); // 复制预览起始参考点
-  const [clipboardSegments, setClipboardSegments] = useState<LineSegment[]>([]); // 剪贴板中的线段（Ctrl+C）
+  // Paste-preview state for select mode
+  const [isCopyPreview, setIsCopyPreview] = useState(false); // whether the paste preview is active
+  const [copyPreviewOffset, setCopyPreviewOffset] = useState<Point>({ x: 0, y: 0 }); // paste preview offset
+  const [copyPreviewOrigin, setCopyPreviewOrigin] = useState<Point | null>(null); // paste preview reference origin
+  const [clipboardSegments, setClipboardSegments] = useState<LineSegment[]>([]); // clipboard segments (Ctrl+C)
 
-  // 保存到历史记录（保存当前状态作为新的一步）
+  // Save the current state as a new history step
   const saveToHistory = useCallback(() => {
-    // 使用ref获取最新状态，避免闭包问题
+    // Read the latest state via refs to avoid stale closures
     const newState: HistoryState = {
       segments: JSON.parse(JSON.stringify(segmentsRef.current)),
       groups: JSON.parse(JSON.stringify(groupsRef.current)),
     };
     
-    // 删除当前索引之后的历史记录（如果有的话）
+    // Drop any redo entries beyond the current index
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
     newHistory.push(newState);
     
-    // 限制历史记录数量（最多50步）
+    // Cap history at 50 steps
     if (newHistory.length > 50) {
       newHistory.shift();
     }
@@ -156,7 +156,7 @@ export function useWaveform() {
     updateHistoryState();
   }, [updateHistoryState]);
 
-  // 撤销
+  // Undo
   const undo = useCallback(() => {
     if (historyIndexRef.current > 0) {
       historyIndexRef.current -= 1;
@@ -167,7 +167,7 @@ export function useWaveform() {
     }
   }, [updateHistoryState]);
 
-  // 恢复
+  // Redo
   const redo = useCallback(() => {
     if (historyIndexRef.current < historyRef.current.length - 1) {
       historyIndexRef.current += 1;
@@ -178,23 +178,24 @@ export function useWaveform() {
     }
   }, [updateHistoryState]);
 
-  // 坐标转换：世界坐标 -> 屏幕坐标（以视口中心为基准）
+  // World -> screen (CSS pixels), centered on the viewport.
+  // Uses clientWidth/Height because the canvas backing store is scaled by devicePixelRatio.
   const worldToScreen = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
     return {
-      x: canvas.width / 2 + (point.x - viewport.centerX) * viewport.scale,
-      y: canvas.height / 2 - (point.y - viewport.centerY) * viewport.scale,
+      x: canvas.clientWidth / 2 + (point.x - viewport.centerX) * viewport.scale,
+      y: canvas.clientHeight / 2 - (point.y - viewport.centerY) * viewport.scale,
     };
   }, [viewport]);
 
-  // 坐标转换：屏幕坐标 -> 世界坐标
+  // Screen (CSS pixels) -> world
   const screenToWorld = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
     return {
-      x: viewport.centerX + (point.x - canvas.width / 2) / viewport.scale,
-      y: viewport.centerY - (point.y - canvas.height / 2) / viewport.scale,
+      x: viewport.centerX + (point.x - canvas.clientWidth / 2) / viewport.scale,
+      y: viewport.centerY - (point.y - canvas.clientHeight / 2) / viewport.scale,
     };
   }, [viewport]);
 
-  // 吸附到格点
+  // Snap to grid
   const snapToGrid = useCallback((point: Point): Point => {
     return {
       x: Math.round(point.x / axisConfig.xGridSize) * axisConfig.xGridSize,
@@ -202,11 +203,11 @@ export function useWaveform() {
     };
   }, [axisConfig]);
 
-  // 添加线段（内部使用，不保存历史）
+  // Add a segment (internal, no history entry)
   const addSegmentInternal = useCallback((start: Point, end: Point, type: 'line' | 'curve' = 'line', targetGroupId?: string): string => {
     let effectiveGroupId = targetGroupId || selectedGroup;
     
-    // 如果没有选中组，创建默认组
+    // Create a default group when none is selected
     if (!effectiveGroupId) {
       const defaultGroup = groups.find(g => g.name === '默认组');
       if (defaultGroup) {
@@ -235,7 +236,7 @@ export function useWaveform() {
     
     setSegments(prev => [...prev, newSegment]);
     
-    // 更新组的线段列表
+    // Update the group's segment list
     setGroups(prev => prev.map(g => 
       g.id === effectiveGroupId 
         ? { ...g, segments: [...g.segments, newSegment.id] }
@@ -245,22 +246,22 @@ export function useWaveform() {
     return newSegment.id;
   }, [selectedGroup, groups]);
 
-  // 添加线段（公开接口，自动保存历史）
+  // Add a segment (public, saves history)
   const addSegment = useCallback((start: Point, end: Point, type: 'line' | 'curve' = 'line', targetGroupId?: string) => {
     const id = addSegmentInternal(start, end, type, targetGroupId);
-    // 延迟保存添加后的状态（确保state已更新）
+    // Defer the save until the new state has committed
     setTimeout(() => saveToHistory(), 0);
     return id;
   }, [addSegmentInternal, saveToHistory]);
 
-  // 更新线段控制点（曲线）
+  // Update a segment's control point (curve)
   const updateControlPoint = useCallback((segmentId: string, control: Point) => {
     setSegments(prev => prev.map(s => 
       s.id === segmentId ? { ...s, control, type: 'curve' } : s
     ));
   }, []);
 
-  // 在线段上添加控制点
+  // Add a control point to a segment
   const addControlPoint = useCallback((segmentId: string, controlPoint: Point) => {
     setSegments(prev => prev.map(s => 
       s.id === segmentId ? { ...s, control: controlPoint, type: 'curve' } : s
@@ -268,7 +269,7 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [saveToHistory]);
 
-  // 删除线段
+  // Delete a segment
   const deleteSegment = useCallback((segmentId: string) => {
     setSegments(prev => prev.filter(s => s.id !== segmentId));
     setGroups(prev => prev.map(g => ({
@@ -281,21 +282,21 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [saveToHistory, activeSegment]);
 
-  // 获取下一个可用颜色
+  // Next available color
   const getNextColor = useCallback((): string => {
-    // 获取已使用的颜色
+    // colors already in use
     const usedColors = new Set(groups.map(g => g.color));
-    // 找到第一个未使用的颜色
+    // first unused color
     for (const color of COLORS) {
       if (!usedColors.has(color)) {
         return color;
       }
     }
-    // 如果所有颜色都用过了，循环使用
+    // Cycle when all colors are used
     return COLORS[groups.length % COLORS.length];
   }, [groups]);
 
-  // 创建组
+  // Create a group
   const createGroup = useCallback((name: string) => {
     const newGroup: WaveformGroup = {
       id: generateId(),
@@ -308,21 +309,21 @@ export function useWaveform() {
     return newGroup.id;
   }, [getNextColor]);
 
-  // 修改组颜色
+  // Change a group's color
   const changeGroupColor = useCallback((groupId: string, color: string) => {
     setGroups(prev => prev.map(g => 
       g.id === groupId ? { ...g, color } : g
     ));
   }, []);
 
-  // 删除组
+  // Delete a group
   const deleteGroup = useCallback((groupId: string) => {
-    // 获取该组的所有线段ID
+    // Segment ids belonging to the group
     const group = groups.find(g => g.id === groupId);
     const segmentIdsToDelete = group?.segments || [];
-    // 删除该组的所有线段
+    // Delete all of the group's segments
     setSegments(prev => prev.filter(s => !segmentIdsToDelete.includes(s.id)));
-    // 删除组
+    // Delete a group
     setGroups(prev => prev.filter(g => g.id !== groupId));
     if (selectedGroup === groupId) {
       setSelectedGroup(null);
@@ -330,7 +331,7 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [saveToHistory, selectedGroup, groups]);
 
-  // 重命名组
+  // Rename a group
   const renameGroup = useCallback((groupId: string, newName: string) => {
     if (!newName.trim()) return;
     setGroups(prev => prev.map(g => 
@@ -338,7 +339,7 @@ export function useWaveform() {
     ));
   }, []);
 
-  // 复制组
+  // Duplicate a group
   const duplicateGroup = useCallback((groupId: string) => {
     const group = groups.find(g => g.id === groupId);
     if (!group) return;
@@ -346,7 +347,7 @@ export function useWaveform() {
     const groupSegments = segments.filter(s => group.segments.includes(s.id));
     if (groupSegments.length === 0) return;
     
-    // 创建新组
+    // Create the new group
     const newGroupId = generateId();
     const newGroup: WaveformGroup = {
       id: newGroupId,
@@ -356,7 +357,7 @@ export function useWaveform() {
       segments: [],
     };
     
-    // 复制线段（向右偏移2个格点单位）
+    // Copy segments (shifted right by two grid units)
     const offsetX = axisConfig.xGridSize * 2;
     const newSegmentIds: string[] = [];
     
@@ -381,12 +382,12 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [groups, segments, axisConfig.xGridSize, saveToHistory]);
 
-  // 移动组（吸附到格点）
+  // Move a group (grid-snapped)
   const moveGroup = useCallback((groupId: string, deltaX: number, deltaY: number) => {
     const group = groups.find(g => g.id === groupId);
     if (!group) return;
     
-    // 吸附到最小格点
+    // Snap to the minor grid
     const snapDeltaX = Math.round(deltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
     const snapDeltaY = Math.round(deltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
     
@@ -401,14 +402,14 @@ export function useWaveform() {
     }));
   }, [groups, axisConfig.xGridSize, axisConfig.yGridSize]);
 
-  // 完成组移动（保存历史）
+  // Finish moving a group (saves history)
   const finishMoveGroup = useCallback(() => {
     saveToHistory();
     setMovingGroup(null);
     setMoveStartPoint(null);
   }, [saveToHistory]);
 
-  // 移动线段的指定端点
+  // Move one endpoint of a segment
   const moveSegmentEndpoint = useCallback((segmentId: string, point: 'start' | 'end', newPos: Point) => {
     setSegments(prev => prev.map(s => {
       if (s.id !== segmentId) return s;
@@ -418,22 +419,22 @@ export function useWaveform() {
       const newStart = point === 'start' ? newPos : oldStart;
       const newEnd = point === 'end' ? newPos : oldEnd;
       
-      // 如果有控制点，按比例调整控制点位置
+      // Rescale the control point proportionally if present
       let newControl = s.control;
       if (s.control && s.type === 'curve') {
-        // 计算控制点相对于起点和终点的参数位置（t值）
-        // 对于二次贝塞尔曲线，控制点位置可以表示为起点和终点的线性组合
+        // Parameterize the control point relative to start/end (t value)
+        // For a quadratic Bezier the control point is a linear combination of the endpoints
         const oldDx = oldEnd.x - oldStart.x;
         const oldDy = oldEnd.y - oldStart.y;
         const newDx = newEnd.x - newStart.x;
         const newDy = newEnd.y - newStart.y;
         
         if (Math.abs(oldDx) > 0.001 || Math.abs(oldDy) > 0.001) {
-          // 计算控制点相对于起点的偏移比例
+          // Offset ratio of the control point from the start
           const tX = oldDx !== 0 ? (s.control.x - oldStart.x) / oldDx : 0.5;
           const tY = oldDy !== 0 ? (s.control.y - oldStart.y) / oldDy : 0.5;
           
-          // 应用新的比例到新的起点和终点
+          // Apply the ratio to the new endpoints
           newControl = {
             x: newStart.x + tX * newDx,
             y: newStart.y + tY * newDy,
@@ -450,23 +451,23 @@ export function useWaveform() {
     }));
   }, []);
 
-  // 切换组可见性
+  // Toggle group visibility
   const toggleGroupVisibility = useCallback((groupId: string) => {
     setGroups(prev => prev.map(g => 
       g.id === groupId ? { ...g, visible: !g.visible } : g
     ));
   }, []);
 
-  // 波形表达式运算（RPN求值，支持 +、-、×、括号、常数，如 (A + B) × 0.5 - 1）
+  // Waveform expression evaluation (RPN; supports +, -, x, parentheses, constants, e.g. (A + B) x 0.5 - 1)
   const calculateExpression = useCallback((expression: string, rpn: CalcRpnToken[]) => {
     if (rpn.length === 0) return;
 
-    // 收集表达式中引用的组的点数据（按x排序，真实值不吸附）
+    // Collect point data of the referenced groups (sorted by x, true unsnapped values)
     const groupPointsMap = new Map<string, Point[]>();
     for (const tk of rpn) {
       if (tk.t === 'g' && !groupPointsMap.has(tk.id)) {
         const group = groups.find(g => g.id === tk.id);
-        if (!group) return; // 组已被删除，放弃计算
+        if (!group) return; // a referenced group was deleted; abort
 
         const points: Point[] = [];
         segments.filter(s => group.segments.includes(s.id)).forEach(s => {
@@ -479,7 +480,7 @@ export function useWaveform() {
     }
     if (groupPointsMap.size === 0) return;
 
-    // 所有组x坐标的并集，容差合并近重复值（消除浮点误差产生的细碎线段）
+    // Union of all x coords, near-duplicates merged by tolerance (avoids sliver segments from float error)
     const xs: number[] = [];
     groupPointsMap.forEach(pts => pts.forEach(p => xs.push(p.x)));
     xs.sort((a, b) => a - b);
@@ -489,8 +490,8 @@ export function useWaveform() {
     }
     if (uniqX.length < 2) return;
 
-    // 表达式含"波形×波形"时（如瞬时功率 V×I），结果是分段二次的，
-    // 只在端点采样会失真——每段额外插2个采样点
+    // With waveform x waveform (e.g. instantaneous power V x I) the result is piecewise quadratic;
+    // sampling only at endpoints would distort it - add 2 extra samples per interval
     const typeStack: boolean[] = [];
     let hasWaveMul = false;
     for (const tk of rpn) {
@@ -514,7 +515,7 @@ export function useWaveform() {
       sampleXs.push(uniqX[uniqX.length - 1]);
     }
 
-    // RPN求值
+    // RPN evaluation
     const evalAt = (x: number): number => {
       const st: number[] = [];
       for (const tk of rpn) {
@@ -534,13 +535,13 @@ export function useWaveform() {
     const resultPoints = sampleXs.map(x => ({ x, y: evalAt(x) })).filter(p => Number.isFinite(p.y));
     if (resultPoints.length < 2) return;
 
-    // 直接构建新组和线段，一次性提交（只产生一条撤销历史）
+    // Build the group and segments directly and commit once (a single history entry)
     const newGroupId = generateId();
     const newSegments: LineSegment[] = [];
     for (let i = 0; i < resultPoints.length - 1; i++) {
       const start = resultPoints[i];
       const end = resultPoints[i + 1];
-      if (start.x === end.x && start.y === end.y) continue; // 跳过零长线段
+      if (start.x === end.x && start.y === end.y) continue; // skip zero-length segments
       newSegments.push({ id: generateId(), start, end, type: 'line', groupId: newGroupId });
     }
     if (newSegments.length === 0) return;
@@ -559,12 +560,12 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [groups, segments, getNextColor, saveToHistory]);
 
-  // 插值获取y值（points须已按x排序；超出范围返回0）
+  // Interpolate y at x (points must be sorted by x; returns 0 outside the range)
   const interpolateY = (x: number, points: Point[]): number => {
     for (let i = 0; i < points.length - 1; i++) {
       if (x >= points[i].x && x <= points[i + 1].x) {
         const dx = points[i + 1].x - points[i].x;
-        // 垂直沿（方波开关沿）或重复点：区间零宽会除零得NaN，取后一个点的电平
+        // Vertical edge (square-wave switching) or duplicate points: a zero-width interval would divide by zero; take the later point's level
         if (dx < 1e-12) {
           if (Math.abs(x - points[i].x) < 1e-12) return points[i + 1].y;
           continue;
@@ -577,7 +578,7 @@ export function useWaveform() {
     return points.find(p => Math.abs(p.x - x) < 1e-12)?.y || 0;
   };
 
-  // 切换线段选择（用于组内复制）
+  // Toggle a segment's selection
   const toggleSegmentSelection = useCallback((segmentId: string, isMultiSelect: boolean) => {
     setSelectedSegments((prev: Set<string>) => {
       const newSet = isMultiSelect ? new Set<string>(prev) : new Set<string>();
@@ -590,12 +591,12 @@ export function useWaveform() {
     });
   }, []);
 
-  // 清除所有选择
+  // Clear the selection
   const clearSegmentSelection = useCallback(() => {
     setSelectedSegments(new Set());
   }, []);
 
-  // 框选：选中完全落在矩形内的线段（additive=true 时追加到现有选择）
+  // Rubber-band: select segments fully inside the rect (additive=true appends to the selection)
   const selectSegmentsInRect = useCallback((corner1: Point, corner2: Point, additive: boolean) => {
     const xLo = Math.min(corner1.x, corner2.x);
     const xHi = Math.max(corner1.x, corner2.x);
@@ -606,7 +607,7 @@ export function useWaveform() {
     const ids = segments
       .filter(s => {
         const g = groups.find(g => g.id === s.groupId);
-        if (g && !g.visible) return false; // 隐藏组不参与框选
+        if (g && !g.visible) return false; // hidden groups are excluded
         return inRect(s.start) && inRect(s.end);
       })
       .map(s => s.id);
@@ -618,7 +619,7 @@ export function useWaveform() {
     });
   }, [segments, groups]);
 
-  // 批量删除选中的线段（Delete/Backspace 键）
+  // Delete all selected segments (Delete/Backspace)
   const deleteSelectedSegments = useCallback(() => {
     if (selectedSegments.size === 0) return;
 
@@ -632,11 +633,11 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [selectedSegments, saveToHistory]);
 
-  // 拖动移动选中的线段（不复制，只移动）
+  // Move the selected segments by a delta (move, not copy)
   const moveSelectedSegments = useCallback((deltaX: number, deltaY: number) => {
     if (selectedSegments.size === 0) return;
     
-    // 吸附到最小格点
+    // Snap to the minor grid
     const snapDeltaX = Math.round(deltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
     const snapDeltaY = Math.round(deltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
     
@@ -653,7 +654,7 @@ export function useWaveform() {
     }));
   }, [selectedSegments, axisConfig.xGridSize, axisConfig.yGridSize]);
 
-  // 完成移动选中的线段（保存历史）
+  // Finish moving the selection (saves history)
   const finishMoveSelectedSegments = useCallback(() => {
     if (selectedSegments.size > 0) {
       saveToHistory();
@@ -662,7 +663,7 @@ export function useWaveform() {
     setDragStartPoint(null);
   }, [selectedSegments.size, saveToHistory]);
 
-  // Ctrl+C：将选中的线段复制到剪贴板
+  // Ctrl+C: copy the selected segments to the clipboard
   const copyToClipboard = useCallback(() => {
     if (selectedSegments.size === 0) return;
     
@@ -672,32 +673,32 @@ export function useWaveform() {
     setClipboardSegments(segmentsToCopy);
   }, [selectedSegments, segments]);
 
-  // Ctrl+V：进入复制预览模式（从剪贴板）
+  // Ctrl+V: enter paste preview from the clipboard
   const enterCopyPreview = useCallback((originPoint: Point) => {
     if (clipboardSegments.length === 0) return;
     
-    // 创建临时复制的线段（用于预览）
+    // Create temporary segments for the preview
     const tempSegments: LineSegment[] = clipboardSegments.map(segment => ({
       ...segment,
-      id: `preview-${segment.id}`, // 预览ID
+      id: `preview-${segment.id}`, // preview id
     }));
     
     setCopyingSegments(tempSegments);
-    // 初始偏移设为0，预览线将画在原位置（红色虚线可区分）
+    // Initial offset 0: the preview draws at the original spot (red dashes distinguish it)
     setCopyPreviewOffset({ x: 0, y: 0 });
     setCopyOffset({ x: 0, y: 0 });
     setCopyPreviewOrigin(originPoint);
     setIsCopyPreview(true);
   }, [clipboardSegments]);
 
-  // 更新复制预览偏移量
+  // Update the paste preview offset
   const updateCopyPreviewOffset = useCallback((mousePos: Point) => {
     if (!copyPreviewOrigin) return;
     
     const rawDeltaX = mousePos.x - copyPreviewOrigin.x;
     const rawDeltaY = mousePos.y - copyPreviewOrigin.y;
     
-    // 吸附到最小格点
+    // Snap to the minor grid
     const snapDeltaX = Math.round(rawDeltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
     const snapDeltaY = Math.round(rawDeltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
     
@@ -705,7 +706,7 @@ export function useWaveform() {
     setCopyOffset({ x: snapDeltaX, y: snapDeltaY });
   }, [copyPreviewOrigin, axisConfig.xGridSize, axisConfig.yGridSize]);
 
-  // 确认复制预览 - 将预览线段变为正式线段
+  // Confirm the paste preview - materialize the preview segments
   const confirmCopyPreview = useCallback(() => {
     if (copyingSegments.length === 0) return;
     
@@ -726,7 +727,7 @@ export function useWaveform() {
       setSegments(prev => [...prev, newSegment]);
       newSegmentIds.push(newSegment.id);
       
-      // 更新组的线段列表
+      // Update the group's segment list
       setGroups(prev => prev.map(g => 
         g.id === segment.groupId 
           ? { ...g, segments: [...g.segments, newSegment.id] }
@@ -734,7 +735,7 @@ export function useWaveform() {
       ));
     });
     
-    // 清除复制预览状态
+    // Clear the paste preview state
     setIsCopyPreview(false);
     setCopyingSegments([]);
     setCopyPreviewOffset({ x: 0, y: 0 });
@@ -744,7 +745,7 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [copyingSegments, copyPreviewOffset, saveToHistory]);
 
-  // 取消复制预览
+  // Cancel the paste preview
   const cancelCopyPreview = useCallback(() => {
     setIsCopyPreview(false);
     setCopyingSegments([]);
@@ -753,7 +754,7 @@ export function useWaveform() {
     setCopyPreviewOrigin(null);
   }, []);
 
-  // 清空所有
+  // Clear all
   const clearAll = useCallback(() => {
     setSegments([]);
     setGroups([]);
@@ -763,17 +764,17 @@ export function useWaveform() {
     setSelectedSegments(new Set());
   }, [saveToHistory]);
 
-  // 构建导出用SVG（范围自动取可见波形的包围盒，向外对齐到主格点）
+  // Build the export SVG (bounds auto-fit the visible waveforms, aligned outward to the major grid)
   const buildSVG = useCallback((): { svg: string; width: number; height: number } => {
     const padding = 60;
 
-    // 计算可见线段的包围盒
+    // Bounding box of the visible segments
     const visibleSegments = segments.filter(s => {
       const g = groups.find(g => g.id === s.groupId);
       return !g || g.visible;
     });
 
-    let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // 无波形时的默认范围
+    let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // default range when there are no waveforms
     if (visibleSegments.length > 0) {
       xMin = Infinity; xMax = -Infinity; yMin = Infinity; yMax = -Infinity;
       visibleSegments.forEach(s => {
@@ -783,7 +784,7 @@ export function useWaveform() {
           yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
         });
       });
-      // 向外对齐到主格点，并各留一格空隙
+      // Align outward to the major grid with one extra cell of padding
       xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
       xMax = (Math.ceil(xMax / axisConfig.xMajorGridSize) + 1) * axisConfig.xMajorGridSize;
       yMin = (Math.floor(yMin / axisConfig.yMajorGridSize) - 1) * axisConfig.yMajorGridSize;
@@ -792,20 +793,20 @@ export function useWaveform() {
 
     const xRange = xMax - xMin;
     const yRange = yMax - yMin;
-    // 每世界单位像素数：默认40，范围太大时压缩，保证导出图不超过约2000px
+    // Pixels per world unit: 40 by default, reduced for large ranges to keep the export under ~2000px
     const pxPerUnit = Math.min(40, 1880 / xRange, 1880 / yRange);
     const width = Math.round(2 * padding + xRange * pxPerUnit);
     const height = Math.round(2 * padding + yRange * pxPerUnit);
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
 
-    // 坐标转换函数
+    // Coordinate transform
     const worldToSVG = (point: Point): Point => ({
       x: padding + ((point.x - xMin) / xRange) * chartWidth,
       y: height - padding - ((point.y - yMin) / yRange) * chartHeight,
     });
 
-    // 生成SVG路径
+    // Build an SVG path
     const generatePath = (segment: LineSegment): string => {
       const start = worldToSVG(segment.start);
       const end = worldToSVG(segment.end);
@@ -819,9 +820,9 @@ export function useWaveform() {
 
 
 
-    // 构建SVG内容
-    // 注意：全部使用内联样式属性而不是CSS类——Visio等软件导入SVG时不解析<style>块，
-    // 用类的话线条颜色会丢失（显示为白色/默认色）
+    // Build the SVG content
+    // Note: inline style attributes only, no CSS classes - Visio does not parse <style> blocks when importing SVG,
+    // with classes the stroke colors would be lost (rendered white/default)
     const MINOR_STYLE = 'stroke="#e5e7eb" stroke-width="1"';
     const MAJOR_STYLE = 'stroke="#6b7280" stroke-width="2"';
     const AXIS_STYLE = 'stroke="#000000" stroke-width="3"';
@@ -837,11 +838,11 @@ export function useWaveform() {
   <g id="grid-minor">
 `;
 
-    // 用整数索引循环避免浮点累加误差
+    // Integer-index loops avoid float accumulation error
     const isMajor = (v: number, major: number) =>
       Math.abs(v / major - Math.round(v / major)) < 1e-6;
 
-    // 垂直次网格线
+    // Vertical minor grid lines
     for (let i = Math.ceil(xMin / axisConfig.xGridSize); i * axisConfig.xGridSize <= xMax + 1e-9; i++) {
       const x = i * axisConfig.xGridSize;
       if (isMajor(x, axisConfig.xMajorGridSize)) continue;
@@ -849,7 +850,7 @@ export function useWaveform() {
       svg += `    <line ${MINOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
-    // 水平次网格线
+    // Horizontal minor grid lines
     for (let i = Math.ceil(yMin / axisConfig.yGridSize); i * axisConfig.yGridSize <= yMax + 1e-9; i++) {
       const y = i * axisConfig.yGridSize;
       if (isMajor(y, axisConfig.yMajorGridSize)) continue;
@@ -863,7 +864,7 @@ export function useWaveform() {
   <g id="grid-major">
 `;
 
-    // 垂直主网格线
+    // Vertical major grid lines
     const xMajorIndexStart = Math.ceil(xMin / axisConfig.xMajorGridSize);
     const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
     for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
@@ -871,7 +872,7 @@ export function useWaveform() {
       svg += `    <line ${MAJOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
-    // 水平主网格线
+    // Horizontal major grid lines
     const yMajorIndexStart = Math.ceil(yMin / axisConfig.yMajorGridSize);
     const yMajorIndexEnd = Math.floor(yMax / axisConfig.yMajorGridSize + 1e-9);
     for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
@@ -885,7 +886,7 @@ export function useWaveform() {
   <g id="axes">
 `;
 
-    // 坐标轴只在原点落在范围内时绘制；不在范围内时刻度标签贴边显示
+    // Axes are drawn only when the origin falls inside the range; otherwise tick labels hug the edge
     const hasXAxis = yMin <= 0 && yMax >= 0;
     const hasYAxis = xMin <= 0 && xMax >= 0;
     const originY = hasXAxis ? worldToSVG({ x: 0, y: 0 }).y : height - padding;
@@ -904,16 +905,16 @@ export function useWaveform() {
   <g id="tick-labels">
 `;
 
-    // X轴刻度（主格点）
+    // X-axis ticks (major grid)
     for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
       const x = i * axisConfig.xMajorGridSize;
-      if (Math.abs(x) < 0.001 && hasXAxis && hasYAxis) continue; // 原点不标数字
+      if (Math.abs(x) < 0.001 && hasXAxis && hasYAxis) continue; // no number at the origin
       const screenX = worldToSVG({ x, y: 0 }).x;
       const label = Number.isInteger(x) ? x.toString() : x.toFixed(1);
       svg += `    <text ${TICK_TEXT_STYLE} x="${screenX.toFixed(2)}" y="${(originY + 20).toFixed(2)}" text-anchor="middle">${label}</text>\n`;
     }
 
-    // Y轴刻度（主格点）
+    // Y-axis ticks (major grid)
     for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
       const y = i * axisConfig.yMajorGridSize;
       if (Math.abs(y) < 0.001 && hasXAxis && hasYAxis) continue;
@@ -946,7 +947,7 @@ export function useWaveform() {
       svg += `    </g>\n`;
     });
 
-    // 不属于任何组的线段兜底
+    // Fallback for segments that belong to no group
     const orphanSegments = segments.filter(s => !groups.some(g => g.id === s.groupId));
     if (orphanSegments.length > 0) {
       svg += `    <g id="wave-group-ungrouped">\n`;
@@ -964,7 +965,7 @@ export function useWaveform() {
 
   const exportToSVG = useCallback((): string => buildSVG().svg, [buildSVG]);
 
-  // 下载SVG文件
+  // Download as SVG
   const downloadSVG = useCallback((filename: string = 'waveform.svg') => {
     const svg = exportToSVG();
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -978,7 +979,7 @@ export function useWaveform() {
     URL.revokeObjectURL(url);
   }, [exportToSVG]);
 
-  // 下载PNG文件（高分辨率：默认3倍渲染）
+  // Download as PNG (hi-res, 3x render by default)
   const downloadPNG = useCallback((filename: string = 'waveform.png', scaleFactor: number = 3) => {
     const { svg, width, height } = buildSVG();
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -1011,7 +1012,7 @@ export function useWaveform() {
     img.src = svgUrl;
   }, [buildSVG]);
 
-  // 导出波形数据为JSON对象
+  // Export the waveform data as a JSON object
   const exportData = useCallback(() => {
     return {
       version: '2.0',
@@ -1023,7 +1024,7 @@ export function useWaveform() {
     };
   }, [axisConfig, viewport, groups, segments]);
 
-  // 下载JSON文件
+  // Download as JSON
   const downloadJSON = useCallback((filename: string = 'waveform.json') => {
     const data = exportData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1037,7 +1038,7 @@ export function useWaveform() {
     URL.revokeObjectURL(url);
   }, [exportData]);
 
-  // 导入波形数据（兼容 1.0 版：忽略旧的 xMin/xMax/yMin/yMax/zoom 字段）
+  // Import waveform data (1.0-compatible: legacy xMin/xMax/yMin/yMax/zoom fields are ignored)
   const importData = useCallback((data: {
     version?: string;
     axisConfig?: Partial<AxisConfig>;
@@ -1045,7 +1046,7 @@ export function useWaveform() {
     groups?: WaveformGroup[];
     segments?: LineSegment[];
   }) => {
-    // 导入坐标配置（如果存在），只提取当前版本认识的字段
+    // Import the axis config if present, keeping only known fields
     if (data.axisConfig) {
       const a = data.axisConfig;
       setAxisConfig({
@@ -1058,7 +1059,7 @@ export function useWaveform() {
       });
     }
 
-    // 恢复视口（2.0 版才有；旧文件保持当前视口）
+    // Restore the viewport (2.0+ only; older files keep the current one)
     if (data.viewport) {
       const v = data.viewport;
       setViewport({
@@ -1068,20 +1069,20 @@ export function useWaveform() {
       });
     }
     
-    // 导入组和线段
+    // Import groups and segments
     if (data.groups && data.segments) {
       setGroups(data.groups);
       setSegments(data.segments);
     }
     
-    // 清除选择状态
+    // Clear selection state
     setSelectedGroup(null);
     setSelectedSegments(new Set());
     setActiveSegment(null);
     setTimeout(saveToHistory, 0);
   }, [saveToHistory]);
 
-  // 生成常用波形
+  // Generate common waveforms
   const generateWaveform = useCallback((
     type: WaveformType,
     params: {
@@ -1091,9 +1092,9 @@ export function useWaveform() {
       totalCycles: number;
       startTime: number;
       phaseShift: number;
-      offset?: number;      // 直流偏置（所有波形通用）
-      edgePercent?: number; // 梯形波：单边沿时间占周期百分比
-      dampingTau?: number;  // 阻尼振荡：衰减时间常数（以周期数计）
+      offset?: number;      // DC offset (all waveform types)
+      edgePercent?: number; // trapezoid: single-edge time as % of the period
+      dampingTau?: number;  // damped ringing: decay constant in periods
     },
     groupName: string,
     customColor?: string,
@@ -1101,9 +1102,9 @@ export function useWaveform() {
   ) => {
     const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
     const offset = params.offset ?? 0;
-    const phaseOffset = (phaseShift / 360) * period; // 转换为时间偏移
+    const phaseOffset = (phaseShift / 360) * period; // convert to a time offset
     
-    // 创建新组
+    // Create the new group
     const newGroupId = generateId();
     const newGroup: WaveformGroup = {
       id: newGroupId,
@@ -1116,12 +1117,12 @@ export function useWaveform() {
     const newSegments: LineSegment[] = [];
     const newSegmentIds: string[] = [];
     
-    // 生成关键点，然后用线段连接
+    // Generate key points, then connect them with segments
     const points: Point[] = [];
     
     if (type === 'square') {
-      // 方波：用关键点生成（横线+竖线）
-      // 每个周期：低电平起点 -> 上升沿 -> 高电平 -> 下降沿 -> 低电平
+      // Square wave from key points (horizontal + vertical strokes)
+      // Each cycle: low start -> rising edge -> high -> falling edge -> low
       const dutyTime = (dutyCycle / 100) * period;
       const lowLevel = -amplitude;
       const highLevel = amplitude;
@@ -1129,38 +1130,38 @@ export function useWaveform() {
       for (let cycle = 0; cycle < totalCycles; cycle++) {
         const cycleStart = startTime + cycle * period + phaseOffset;
         
-        // 周期起点（低电平）
+        // Cycle start (low)
         points.push({ x: cycleStart, y: lowLevel });
-        // 上升沿起点（低电平）
+        // Rising edge start (low)
         points.push({ x: cycleStart, y: lowLevel });
-        // 上升沿终点（高电平）
+        // Rising edge end (high)
         points.push({ x: cycleStart, y: highLevel });
-        // 高电平终点
+        // High level end
         points.push({ x: cycleStart + dutyTime, y: highLevel });
-        // 下降沿终点（低电平）
+        // Falling edge end (low)
         points.push({ x: cycleStart + dutyTime, y: lowLevel });
-        // 周期终点（低电平）
+        // Cycle end (low)
         points.push({ x: cycleStart + period, y: lowLevel });
       }
     } else if (type === 'ramp') {
-      // Ramp波（电感电流波形）：上升沿 + 下降沿
-      // 占空比控制上升沿时间
+      // Ramp (inductor-current shape): rise + fall
+      // duty cycle sets the rise time
       const riseTime = (dutyCycle / 100) * period;
-      const lowLevel = 0; // 从0开始
+      const lowLevel = 0; // starts from 0
       const highLevel = amplitude;
       
       for (let cycle = 0; cycle < totalCycles; cycle++) {
         const cycleStart = startTime + cycle * period + phaseOffset;
         
-        // 周期起点（低电平）
+        // Cycle start (low)
         points.push({ x: cycleStart, y: lowLevel });
-        // 上升沿终点（峰值）
+        // Rise end (peak)
         points.push({ x: cycleStart + riseTime, y: highLevel });
-        // 下降沿终点（回到低电平）
+        // Fall end (back to low)
         points.push({ x: cycleStart + period, y: lowLevel });
       }
     } else if (type === 'sine') {
-      // 正弦波：采样点连接
+      // Sine: connected sample points
       const samplesPerPeriod = 20;
       const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
       const dt = period / samplesPerPeriod;
@@ -1173,7 +1174,7 @@ export function useWaveform() {
         points.push({ x: t, y });
       }
     } else if (type === 'triangle') {
-      // 三角波：占空比控制峰值位置（50%=对称三角，作PWM载波）
+      // Triangle: duty cycle sets the peak position (50% = symmetric, PWM carrier)
       const peakTime = (dutyCycle / 100) * period;
       for (let cycle = 0; cycle < totalCycles; cycle++) {
         const cycleStart = startTime + cycle * period + phaseOffset;
@@ -1182,7 +1183,7 @@ export function useWaveform() {
       }
       points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
     } else if (type === 'sawtooth') {
-      // 锯齿波：整周期线性上升，瞬时回落（PWM载波/斜坡补偿）
+      // Sawtooth: linear rise over the full period, instant fall (PWM carrier / slope compensation)
       for (let cycle = 0; cycle < totalCycles; cycle++) {
         const cycleStart = startTime + cycle * period + phaseOffset;
         points.push({ x: cycleStart, y: -amplitude });
@@ -1190,10 +1191,10 @@ export function useWaveform() {
         points.push({ x: cycleStart + period, y: -amplitude });
       }
     } else if (type === 'trapezoid') {
-      // 梯形波：带有限上升/下降沿的开关波形（开关节点电压、栅极驱动）
+      // Trapezoid: switching waveform with finite edges (switch-node voltage, gate drive)
       const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
       const edgeTime = edgeFrac * period;
-      // 高电平时间 = 占空比时间 - 一个边沿时间（近似以中点计占空比）
+      // High time = duty time minus one edge time (duty measured at edge midpoints, approximately)
       const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
       const lowLevel = -amplitude;
       const highLevel = amplitude;
@@ -1207,7 +1208,7 @@ export function useWaveform() {
         points.push({ x: cycleStart + period, y: lowLevel });
       }
     } else if (type === 'rectified') {
-      // 整流正弦 |A·sin|（整流器输出）
+      // Rectified sine |A*sin| (rectifier output)
       const samplesPerPeriod = 20;
       const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
       const dt = period / samplesPerPeriod;
@@ -1219,8 +1220,8 @@ export function useWaveform() {
         points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
       }
     } else if (type === 'damped') {
-      // 阻尼振荡 A·e^(-t/(τT))·sin(2πt/T)（开关节点振铃、LC谐振）
-      const tau = Math.max(0.1, params.dampingTau ?? 2) * period; // 时间常数
+      // Damped ringing A*e^(-t/(tau*T))*sin(2*pi*t/T) (switch-node ringing, LC resonance)
+      const tau = Math.max(0.1, params.dampingTau ?? 2) * period; // time constant
       const samplesPerPeriod = 40;
       const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
       const dt = period / samplesPerPeriod;
@@ -1233,10 +1234,10 @@ export function useWaveform() {
       }
     }
 
-    // 直流偏置
+    // DC offset
     const shifted = offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
 
-    // 将点连接成线段（跳过零长线段）
+    // Connect the points into segments (skipping zero-length ones)
     for (let i = 0; i < shifted.length - 1; i++) {
       const start = shifted[i];
       const end = shifted[i + 1];

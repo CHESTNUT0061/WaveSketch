@@ -27,11 +27,11 @@ const tokenText = (t: Token): string => {
   }
 };
 
-// 值的结束位置：组、常数、右括号之后可以接运算符/右括号
+// A value ends here: an operator / right paren may follow a group, constant, or right paren
 const isValueEnd = (t: Token | undefined) =>
   !!t && (t.type === 'group' || t.type === 'const' || t.type === 'rparen');
 
-// 值的开始位置：空、运算符后、左括号后可以放组/常数/左括号
+// A value may start here: at the beginning, after an operator, or after a left paren
 const isValueStart = (t: Token | undefined) =>
   !t || t.type === 'op' || t.type === 'lparen';
 
@@ -74,7 +74,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
   const clearExpression = () => { setTokens([]); setError(null); };
   const removeLastToken = () => { setTokens(tokens.slice(0, -1)); setError(null); };
 
-  // Shunting-yard：中缀 token 序列 → RPN
+  // Shunting-yard: infix token list -> RPN
   const toRpn = (): CalcRpnToken[] | null => {
     const output: CalcRpnToken[] = [];
     const opStack: ('+' | '-' | '×' | '(')[] = [];
@@ -100,7 +100,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         while (opStack.length > 0 && opStack[opStack.length - 1] !== '(') {
           output.push({ t: 'op', v: opStack.pop() as '+' | '-' | '×' });
         }
-        if (opStack.pop() !== '(') return null; // 括号不匹配
+        if (opStack.pop() !== '(') return null; // unbalanced parentheses
       }
     }
     while (opStack.length > 0) {
@@ -129,7 +129,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
     <div className="mb-6">
       <Label className="text-sm font-medium mb-2 block">波形计算器</Label>
 
-      {/* 表达式显示 */}
+      {/* Expression display */}
       <div className="mb-3 p-2 bg-gray-100 rounded border">
         <div className="text-sm font-mono min-h-[24px] break-all">
           {tokens.length > 0 ? tokens.map(tokenText).join(' ') : <span className="text-gray-400">点击按钮构建算式...</span>}
@@ -139,7 +139,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         )}
       </div>
 
-      {/* 运算符与括号 */}
+      {/* Operators and parentheses */}
       <div className="flex gap-1 mb-2">
         <Button size="sm" variant="outline" onClick={() => addOp('+')} className="flex-1 text-base font-bold px-0" disabled={!canAddOp}>+</Button>
         <Button size="sm" variant="outline" onClick={() => addOp('-')} className="flex-1 text-base font-bold px-0" disabled={!canAddOp}>−</Button>
@@ -148,7 +148,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         <Button size="sm" variant="outline" onClick={() => { if (canAddRparen) push({ type: 'rparen' }); else setError('没有可闭合的括号'); }} className="flex-1 text-base font-bold px-0" disabled={!canAddRparen}>)</Button>
       </div>
 
-      {/* 常数与编辑 */}
+      {/* Constant input and editing */}
       <div className="flex gap-2 mb-3 items-center">
         <Input
           type="number"
@@ -169,7 +169,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         </Button>
       </div>
 
-      {/* 波形按钮 */}
+      {/* Waveform buttons */}
       <div className="mb-3">
         <Label className="text-xs text-gray-500 mb-1 block">选择波形</Label>
         <div className="flex flex-wrap gap-1">
@@ -201,12 +201,12 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         </div>
       </div>
 
-      {/* 示例提示 */}
+      {/* Examples */}
       <div className="mb-3 text-xs text-gray-400">
         示例：(A + B) × 0.5、A × 2 − 1、V × I（瞬时功率）
       </div>
 
-      {/* 计算按钮 */}
+      {/* Calculate button */}
       <Button
         size="sm"
         onClick={calculate}

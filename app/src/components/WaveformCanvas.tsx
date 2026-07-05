@@ -6,15 +6,15 @@ interface WaveformCanvasProps {
   groups: WaveformGroup[];
   selectedSegments: Set<string>;
   axisConfig: AxisConfig;
-  mode: 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select';
+  mode: 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';
   selectedGroup: string | null;
   activeSegment: string | null;
   isDrawing: boolean;
   drawStart: Point | null;
   currentMouse: Point | null;
   draggingControl: string | null;
-  copyingSegments?: LineSegment[]; // 正在复制的线段（预览用）
-  copyOffset?: Point; // 复制偏移量
+  copyingSegments?: LineSegment[]; // segments being copied (for preview)
+  copyOffset?: Point; // copy offset
   worldToScreen: (point: Point, canvas: HTMLCanvasElement) => Point;
   screenToWorld: (point: Point, canvas: HTMLCanvasElement) => Point;
   snapToGrid: (point: Point) => Point;
@@ -23,8 +23,9 @@ interface WaveformCanvasProps {
   onMouseUp: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
   onZoomChange?: (factor: number, screenPos?: Point) => void;
-  panning?: 'ready' | 'active' | null; // 平移状态：ready=按住空格待拖，active=拖拽中
-  selectionRect?: { start: Point; end: Point } | null; // 框选矩形（世界坐标）
+  onPan?: (dxCss: number, dyCss: number) => void; // pan by a screen-pixel delta (two-finger gesture)
+  panning?: 'ready' | 'active' | null; // ready = space held, active = dragging
+  selectionRect?: { start: Point; end: Point } | null; // rubber-band rect in world coords
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
@@ -49,55 +50,60 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onMouseUp,
   onDoubleClick,
   onZoomChange,
+  onPan,
   panning = null,
   selectionRect = null,
   canvasRef,
 }) => {
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
-    // 当前视口的世界坐标范围（无限画布：网格铺满整个画布）
+    // All drawing coordinates are CSS pixels (the context is pre-scaled by devicePixelRatio)
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+
+    // Visible world range of the current viewport (infinite canvas: grid fills the whole area)
     const topLeft = screenToWorld({ x: 0, y: 0 }, canvas);
-    const bottomRight = screenToWorld({ x: canvas.width, y: canvas.height }, canvas);
+    const bottomRight = screenToWorld({ x: cssW, y: cssH }, canvas);
     const xMinVis = topLeft.x;
     const xMaxVis = bottomRight.x;
     const yMinVis = bottomRight.y;
     const yMaxVis = topLeft.y;
 
-    // 每世界单位对应的像素数（用于密度控制）
+    // Pixels per world unit (used for density control)
     const pxPerUnit = worldToScreen({ x: 1, y: 0 }, canvas).x - worldToScreen({ x: 0, y: 0 }, canvas).x;
 
     const isMajor = (v: number, major: number) =>
       Math.abs(v / major - Math.round(v / major)) < 1e-6;
 
-    // 次格点（浅灰色实线）——间距小于5px时太密，跳过不画
+    // Minor grid (light gray) - skipped when the spacing drops below 5px
     if (axisConfig.xGridSize * pxPerUnit >= 5 && axisConfig.yGridSize * pxPerUnit >= 5) {
       ctx.strokeStyle = '#e5e7eb';
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
 
-      // 垂直次格线（整数索引循环避免浮点累加误差）
+      // Vertical minor lines (integer-index loop avoids float accumulation error)
       for (let i = Math.ceil(xMinVis / axisConfig.xGridSize); i * axisConfig.xGridSize <= xMaxVis; i++) {
         const x = i * axisConfig.xGridSize;
         if (isMajor(x, axisConfig.xMajorGridSize)) continue;
         const screenX = worldToScreen({ x, y: 0 }, canvas).x;
         ctx.beginPath();
         ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, canvas.height);
+        ctx.lineTo(screenX, cssH);
         ctx.stroke();
       }
 
-      // 水平次格线
+      // Horizontal minor lines
       for (let i = Math.ceil(yMinVis / axisConfig.yGridSize); i * axisConfig.yGridSize <= yMaxVis; i++) {
         const y = i * axisConfig.yGridSize;
         if (isMajor(y, axisConfig.yMajorGridSize)) continue;
         const screenY = worldToScreen({ x: 0, y }, canvas).y;
         ctx.beginPath();
         ctx.moveTo(0, screenY);
-        ctx.lineTo(canvas.width, screenY);
+        ctx.lineTo(cssW, screenY);
         ctx.stroke();
       }
     }
 
-    // 主格点（深灰色实线）——间距小于12px时跳过
+    // Major grid (dark gray) - skipped when the spacing drops below 12px
     const showMajor = axisConfig.xMajorGridSize * pxPerUnit >= 12 && axisConfig.yMajorGridSize * pxPerUnit >= 12;
     if (showMajor) {
       ctx.strokeStyle = '#6b7280';
@@ -108,7 +114,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const screenX = worldToScreen({ x: i * axisConfig.xMajorGridSize, y: 0 }, canvas).x;
         ctx.beginPath();
         ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, canvas.height);
+        ctx.lineTo(screenX, cssH);
         ctx.stroke();
       }
 
@@ -116,41 +122,41 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         const screenY = worldToScreen({ x: 0, y: i * axisConfig.yMajorGridSize }, canvas).y;
         ctx.beginPath();
         ctx.moveTo(0, screenY);
-        ctx.lineTo(canvas.width, screenY);
+        ctx.lineTo(cssW, screenY);
         ctx.stroke();
       }
     }
 
-    // 坐标轴（粗黑线）——原点在视野内才画
+    // Axes (thick black) - drawn only when the origin is in view
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 3;
 
     const origin = worldToScreen({ x: 0, y: 0 }, canvas);
-    const xAxisVisible = origin.y >= 0 && origin.y <= canvas.height;
-    const yAxisVisible = origin.x >= 0 && origin.x <= canvas.width;
+    const xAxisVisible = origin.y >= 0 && origin.y <= cssH;
+    const yAxisVisible = origin.x >= 0 && origin.x <= cssW;
 
     if (xAxisVisible) {
       ctx.beginPath();
       ctx.moveTo(0, origin.y);
-      ctx.lineTo(canvas.width, origin.y);
+      ctx.lineTo(cssW, origin.y);
       ctx.stroke();
     }
     if (yAxisVisible) {
       ctx.beginPath();
       ctx.moveTo(origin.x, 0);
-      ctx.lineTo(origin.x, canvas.height);
+      ctx.lineTo(origin.x, cssH);
       ctx.stroke();
     }
 
-    // 刻度标签（主格点）——轴不在视野内时标签贴画布边缘显示
+    // Tick labels (major grid) - pinned to the canvas edge when the axis is off-screen
     if (showMajor && axisConfig.xMajorGridSize * pxPerUnit >= 30) {
-      const labelY = Math.min(Math.max(origin.y + 22, 16), canvas.height - 8);
-      const labelXBase = Math.min(Math.max(origin.x - 12, 34), canvas.width - 6);
+      const labelY = Math.min(Math.max(origin.y + 22, 16), cssH - 8);
+      const labelXBase = Math.min(Math.max(origin.x - 12, 34), cssW - 6);
 
       ctx.fillStyle = '#1f2937';
       ctx.font = 'bold 13px sans-serif';
 
-      // X轴刻度
+      // X-axis ticks
       ctx.textAlign = 'center';
       for (let i = Math.ceil(xMinVis / axisConfig.xMajorGridSize); i * axisConfig.xMajorGridSize <= xMaxVis; i++) {
         const x = i * axisConfig.xMajorGridSize;
@@ -160,7 +166,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         ctx.fillText(label, screenX, labelY);
       }
 
-      // Y轴刻度
+      // Y-axis ticks
       ctx.textAlign = 'right';
       for (let i = Math.ceil(yMinVis / axisConfig.yMajorGridSize); i * axisConfig.yMajorGridSize <= yMaxVis; i++) {
         const y = i * axisConfig.yMajorGridSize;
@@ -171,12 +177,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       }
     }
 
-    // 轴单位标签
+    // Axis unit labels
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
     if (xAxisVisible) {
-      ctx.fillText(axisConfig.xUnit, canvas.width - 16, origin.y - 10);
+      ctx.fillText(axisConfig.xUnit, cssW - 16, origin.y - 10);
     }
     if (yAxisVisible) {
       ctx.fillText(axisConfig.yUnit, origin.x + 18, 18);
@@ -191,12 +197,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const end = worldToScreen(segment.end, canvas);
     const color = group?.color || '#3b82f6';
     
-    // 删除模式下，悬停的线段显示红色
+    // In delete mode the hovered segment turns red
     if (mode === 'delete' && segment.id === activeSegment) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 4;
     } else if (selectedSegs.has(segment.id)) {
-      // 选中的线段显示高亮
+      // Selected segments are highlighted
       ctx.strokeStyle = color;
       ctx.lineWidth = 4;
     } else {
@@ -205,21 +211,21 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
     
     if (segment.type === 'curve' && segment.control) {
-      // 二次贝塞尔曲线直接绘制（画布边界自动裁剪）
+      // Quadratic Bezier drawn directly (clipped by the canvas bounds)
       const control = worldToScreen(segment.control, canvas);
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
       ctx.stroke();
 
-      // 绘制控制点（编辑模式）
+      // Draw the control point (edit mode)
       if (mode === 'edit') {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
         ctx.fill();
 
-        // 控制线
+        // Control lines
         ctx.strokeStyle = '#fca5a5';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
@@ -237,9 +243,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
     }
     
-    // 编辑模式：只显示选中组的端点和中点（可拖动创建曲线）
+    // Edit mode: endpoints/midpoints only for the selected group (drag the midpoint to create a curve)
     if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup) {
-      // 端点
+      // Endpoints
       ctx.fillStyle = segment.id === activeSegment ? '#10b981' : '#3b82f6';
       ctx.beginPath();
       ctx.arc(start.x, start.y, 5, 0, Math.PI * 2);
@@ -248,7 +254,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.arc(end.x, end.y, 5, 0, Math.PI * 2);
       ctx.fill();
       
-      // 中点（可拖动创建曲线）
+      // Midpoint (drag to create a curve)
       const midX = (start.x + end.x) / 2;
       const midY = (start.y + end.y) / 2;
       ctx.fillStyle = segment.id === activeSegment ? '#ef4444' : '#9ca3af';
@@ -256,7 +262,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.arc(midX, midY, 6, 0, Math.PI * 2);
       ctx.fill();
       
-      // 中点边框
+      // Midpoint border
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -278,7 +284,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 显示坐标
+    // Coordinate readout
     ctx.fillStyle = '#111827';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
@@ -286,15 +292,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.fillText(`(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`, end.x + 10, end.y - 10);
   }, [isDrawing, drawStart, currentMouse, worldToScreen, snapToGrid]);
 
-  // 绘制复制预览
+  // Draw the copy preview
   const drawCopyPreview = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     if (copyingSegments.length === 0) return;
     
-    // 预览虚线使用高可见度的红色，确保用户能看到
-    ctx.strokeStyle = '#ef4444';  // 红色预览线
+    // Preview dashes use a highly visible red
+    ctx.strokeStyle = '#ef4444';  // red preview stroke
     ctx.lineWidth = 3;
-    ctx.setLineDash([10, 5]); // 虚线表示预览
-    ctx.globalAlpha = 0.85; // 稍透明但足够明显
+    ctx.setLineDash([10, 5]); // dashes indicate a preview
+    ctx.globalAlpha = 0.85; // slightly transparent but clearly visible
     
     copyingSegments.forEach(segment => {
       const start = worldToScreen({ x: segment.start.x + copyOffset.x, y: segment.start.y + copyOffset.y }, canvas);
@@ -315,34 +321,37 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.globalAlpha = 1.0;
   }, [copyingSegments, copyOffset, worldToScreen]);
 
-  // 自适应画布大小
+  // Responsive canvas sizing
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = React.useState({ width: 800, height: 500 });
 
-  // 初始渲染和尺寸变化时重绘
+  // Redraw on mount and whenever any input changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    // Scale the context by devicePixelRatio so drawing stays sharp on Hi-DPI screens;
+    // all drawing code below works in CSS pixels.
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     
-    // 清空画布
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 绘制网格
+    // Draw the grid
     drawGrid(ctx, canvas);
     
-    // 绘制线段
+    // Draw segments
     segments.forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments));
     
-    // 绘制复制预览
+    // Draw the copy preview
     drawCopyPreview(ctx, canvas);
 
-    // 绘制预览
+    // Draw the preview
     drawPreview(ctx, canvas);
 
-    // 绘制框选矩形（蓝色虚线 + 半透明填充）
+    // Draw the rubber-band rect (blue dashes + translucent fill)
     if (selectionRect) {
       const p1 = worldToScreen(selectionRect.start, canvas);
       const p2 = worldToScreen(selectionRect.end, canvas);
@@ -372,63 +381,124 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     };
 
     updateSize();
+    // ResizeObserver tracks container size changes from any cause
+    // (window resize, orientation change, responsive layout shifts)
+    const observer = new ResizeObserver(updateSize);
+    if (containerRef.current) observer.observe(containerRef.current);
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
   }, []);
 
-  // 触摸事件处理
+  // Touch handling: single finger is translated to mouse events (so all tools work),
+  // two fingers become pinch-zoom + pan and never reach the tool logic.
+  const pinchRef = React.useRef<{ dist: number; midX: number; midY: number } | null>(null);
+  const ignoreSingleTouchRef = React.useRef(false); // true from pinch start until all fingers lift
+
+  const touchDistance = (t: React.TouchList) =>
+    Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const touchMidpoint = (t: React.TouchList) => ({
+    midX: (t[0].clientX + t[1].clientX) / 2,
+    midY: (t[0].clientY + t[1].clientY) / 2,
+  });
+
   const handleTouchStart = (e: React.TouchEvent) => {
     e.preventDefault();
+    if (e.touches.length >= 2) {
+      // Cancel any in-progress single-finger action, then start the pinch gesture
+      e.target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      ignoreSingleTouchRef.current = true;
+      pinchRef.current = { dist: touchDistance(e.touches), ...touchMidpoint(e.touches) };
+      return;
+    }
+    if (ignoreSingleTouchRef.current) return;
     const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousedown', {
+    touch.target.dispatchEvent(new MouseEvent('mousedown', {
       clientX: touch.clientX,
       clientY: touch.clientY,
       bubbles: true,
-    });
-    touch.target.dispatchEvent(mouseEvent);
+    }));
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
     e.preventDefault();
+    if (e.touches.length >= 2 && pinchRef.current) {
+      const prev = pinchRef.current;
+      const dist = touchDistance(e.touches);
+      const { midX, midY } = touchMidpoint(e.touches);
+
+      // Zoom around the finger midpoint
+      if (onZoomChange && canvasRef.current && prev.dist > 0) {
+        const factor = dist / prev.dist;
+        if (Math.abs(factor - 1) > 0.002) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          onZoomChange(factor, { x: midX - rect.left, y: midY - rect.top });
+        }
+      }
+      // Pan by the midpoint movement
+      if (onPan) {
+        onPan(midX - prev.midX, midY - prev.midY);
+      }
+
+      pinchRef.current = { dist, midX, midY };
+      return;
+    }
+    if (ignoreSingleTouchRef.current) return;
     const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousemove', {
+    touch.target.dispatchEvent(new MouseEvent('mousemove', {
       clientX: touch.clientX,
       clientY: touch.clientY,
       bubbles: true,
-    });
-    touch.target.dispatchEvent(mouseEvent);
+    }));
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     e.preventDefault();
-    const mouseEvent = new MouseEvent('mouseup', {
-      bubbles: true,
-    });
-    e.target.dispatchEvent(mouseEvent);
+    if (e.touches.length < 2) {
+      pinchRef.current = null;
+    }
+    if (e.touches.length === 0) {
+      const wasPinch = ignoreSingleTouchRef.current;
+      ignoreSingleTouchRef.current = false;
+      if (wasPinch) return; // pinch never produced a mousedown, so no mouseup needed
+      e.target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    }
   };
 
-  // 不同模式使用不同光标：选择=箭头，移组/平移=白色抓手带黑边，其余=十字准星
+  // Per-mode cursors. Icon cursors are drawn twice (thick black stroke under a thin
+  // white stroke) so they stay visible on any background.
+  const outlinedCursor = (paths: string, hotX: number, hotY: number, fallback: string) =>
+    `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='black' stroke-width='3.5'%3E${paths}%3C/g%3E%3Cg stroke='white' stroke-width='1.8'%3E${paths}%3C/g%3E%3C/svg%3E") ${hotX} ${hotY}, ${fallback}`;
+
   const CROSSHAIR_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath stroke='black' stroke-width='2' d='M12 0v24M0 12h24'/%3E%3C/svg%3E") 12 12, crosshair`;
-  // 抓手图标画两层：黑色粗描边打底 + 白色细描边覆盖，任何背景下都清晰可辨
   const HAND_PATHS = `%3Cpath d='M18 11V6a2 2 0 0 0-4 0v5'/%3E%3Cpath d='M14 10V4a2 2 0 0 0-4 0v2'/%3E%3Cpath d='M10 10.5V6a2 2 0 0 0-4 0v8'/%3E%3Cpath d='m7 15-1.76-1.76a2 2 0 0 0-2.83 2.82l3.6 3.6C7.5 21.14 9.2 22 12 22h2a8 8 0 0 0 8-8V7a2 2 0 0 0-4 0v5'/%3E`;
-  const GRAB_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='black' stroke-width='3.5'%3E${HAND_PATHS}%3C/g%3E%3Cg stroke='white' stroke-width='1.8'%3E${HAND_PATHS}%3C/g%3E%3C/svg%3E") 12 12, grab`;
+  const PENCIL_PATHS = `%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E`;
+  const TRASH_PATHS = `%3Cpath d='M3 6h18'/%3E%3Cpath d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/%3E%3Cpath d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/%3E%3Cpath d='M10 11v6'/%3E%3Cpath d='M14 11v6'/%3E`;
+
+  const GRAB_CURSOR = outlinedCursor(HAND_PATHS, 12, 12, 'grab');
+  const PENCIL_CURSOR = outlinedCursor(PENCIL_PATHS, 3, 21, 'default'); // hotspot at the pen tip
+  const TRASH_CURSOR = outlinedCursor(TRASH_PATHS, 12, 12, 'default');
+
   const MODE_CURSORS: Record<WaveformCanvasProps['mode'], string> = {
     draw: CROSSHAIR_CURSOR,
-    edit: CROSSHAIR_CURSOR,
-    delete: CROSSHAIR_CURSOR,
+    edit: PENCIL_CURSOR,
+    delete: TRASH_CURSOR,
     moveGroup: GRAB_CURSOR,
+    pan: GRAB_CURSOR,
     select: 'default',
   };
 
-  // 滚轮缩放处理（以鼠标位置为中心）
+  // Wheel zoom (centered on the cursor)
   const handleWheel = (e: React.WheelEvent) => {
-    // 阻止所有默认行为（防止页面滚动和任何视觉反馈）
+    // Block all default behavior (page scroll etc.)
     e.preventDefault();
     e.stopPropagation();
 
     if (onZoomChange && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
-      // deltaY > 0 表示向下滚动（缩小），deltaY < 0 表示向上滚动（放大）
+      // deltaY > 0 scrolls down (zoom out), deltaY < 0 zooms in
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       onZoomChange(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
@@ -440,11 +510,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     <div ref={containerRef} className="w-full h-full touch-none overflow-hidden">
       <canvas
         ref={canvasRef}
-        width={canvasSize.width}
-        height={canvasSize.height}
+        width={Math.round(canvasSize.width * (window.devicePixelRatio || 1))}
+        height={Math.round(canvasSize.height * (window.devicePixelRatio || 1))}
         className="bg-white"
-        style={{ 
-          width: canvasSize.width, 
+        style={{
+          width: canvasSize.width,
           height: canvasSize.height,
           cursor: panning ? GRAB_CURSOR : MODE_CURSORS[mode]
         }}

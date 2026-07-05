@@ -5,14 +5,14 @@ import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
 
-// 站点链接
+// Site links
 const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
 const WPD_URL = 'https://apps.automeris.io/wpd4/';
 
-// 按钮说明组件
+// Tooltip wrapper for buttons
 interface TooltipButtonProps {
   children: React.ReactNode;
   tooltip: string;
@@ -25,7 +25,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
   const tooltipRef = React.useRef<HTMLDivElement>(null);
   const [tooltipPos, setTooltipPos] = React.useState({ x: 0, y: 0 });
 
-  // 渲染后用提示框的实际尺寸定位，避免长文字超出屏幕边界
+  // Position using the tooltip's measured size after render so long text never overflows the screen
   React.useLayoutEffect(() => {
     if (!show || !buttonRef.current || !tooltipRef.current) return;
 
@@ -36,7 +36,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
     let x = rect.left + rect.width / 2;
     const y = position === 'bottom' ? rect.bottom + 8 : rect.top - tipHeight - 8;
 
-    // 左右都不超出屏幕（留8px边距）
+    // Clamp horizontally within the screen (8px margin)
     x = Math.max(tipWidth / 2 + 8, Math.min(window.innerWidth - tipWidth / 2 - 8, x));
 
     setTooltipPos({ x, y });
@@ -58,7 +58,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
             left: tooltipPos.x,
             top: tooltipPos.y,
             transform: 'translate(-50%, 0)',
-            visibility: tooltipPos.x === 0 ? 'hidden' : 'visible', // 首帧测量前不闪烁
+            visibility: tooltipPos.x === 0 ? 'hidden' : 'visible', // avoid flicker before the first measurement
           }}
         >
           {tooltip}
@@ -155,22 +155,22 @@ function App() {
     worldToScreen,
   } = useWaveform();
 
-  // 编辑模式拖动状态
+  // Drag state for edit mode
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ segmentId: string; point: 'start' | 'end' } | null>(null);
-  const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // 拖动中点创建曲线
-  // 本次拖动是否实际改动了线段（决定松手时要不要存撤销历史）
+  const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // dragging a midpoint to create a curve
+  // Whether this drag actually changed segments (decides if history is saved on mouse-up)
   const dragChangedRef = React.useRef(false);
 
-  // 框选状态（选择模式下拖拽空白处，世界坐标不吸附）
+  // Rubber-band state (dragging empty space in select mode, unsnapped world coords)
   const [marquee, setMarquee] = useState<{ start: Point; end: Point } | null>(null);
   const marqueeAdditiveRef = React.useRef(false);
 
-  // 画布平移状态（中键拖拽或空格+左键拖拽）
+  // Canvas panning state (middle-button drag or Space+left drag)
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
 
-  // 访问人次统计（不蒜子）：只在正式部署的域名上加载，本地开发不计数
+  // Visit counter (Busuanzi): only loaded on the deployed domain; local dev is not counted
   React.useEffect(() => {
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
     const script = document.createElement('script');
@@ -180,7 +180,7 @@ function App() {
     return () => { document.body.removeChild(script); };
   }, []);
 
-  // 空格键按住时进入平移待命状态
+  // Holding Space arms canvas panning
   React.useEffect(() => {
     const isTypingTarget = (target: EventTarget | null) =>
       target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
@@ -188,7 +188,7 @@ function App() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isTypingTarget(e.target)) {
-        e.preventDefault(); // 防止页面滚动
+        e.preventDefault(); // prevent page scrolling
         setSpaceHeld(true);
       }
     };
@@ -205,40 +205,40 @@ function App() {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
-  // 移动偏移显示
+  // Move-offset display
   const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
   
-  // 选择模式下的偏移显示（画布右上角）
+  // Offset readout for select mode (top-right of canvas)
   const [selectCopyOffset, setSelectCopyOffset] = useState<{ x: number; y: number } | null>(null);
 
-  // 键盘事件监听（Ctrl+C 复制到剪贴板，Ctrl+V 触发复制预览）
+  // Keyboard shortcuts (Ctrl+C copy to clipboard, Ctrl+V start paste preview)
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+C 或 Cmd+C：复制选中的线到剪贴板
+      // Ctrl+C / Cmd+C: copy selected segments to the clipboard
       if ((e.ctrlKey || e.metaKey) && e.key === 'c' && mode === 'select' && selectedSegments.size > 0) {
         e.preventDefault();
         copyToClipboard();
       }
-      // Ctrl+V 或 Cmd+V：触发复制预览
+      // Ctrl+V / Cmd+V: start the paste preview
       if ((e.ctrlKey || e.metaKey) && e.key === 'v' && mode === 'select' && clipboardSegments.length > 0 && !isCopyPreview) {
         e.preventDefault();
-        // 使用当前鼠标位置作为复制原点
+        // Use the current mouse position as the paste origin
         const originPoint = currentMouse || { x: 0, y: 0 };
         enterCopyPreview(originPoint);
       }
-      // Enter 确认复制
+      // Enter confirms the paste
       if (e.key === 'Enter' && isCopyPreview) {
         e.preventDefault();
         confirmCopyPreview();
         setSelectCopyOffset(null);
       }
-      // Escape 取消复制预览
+      // Escape Cancel the paste preview
       if (e.key === 'Escape' && isCopyPreview) {
         e.preventDefault();
         cancelCopyPreview();
         setSelectCopyOffset(null);
       }
-      // Delete/Backspace 删除选中的线段（输入框有焦点时不触发）
+      // Delete/Backspace removes selected segments (ignored while an input has focus)
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSegments.size > 0 && !isCopyPreview) {
         const target = e.target as HTMLElement;
         if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) {
@@ -253,7 +253,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mode, selectedSegments.size, isCopyPreview, currentMouse, clipboardSegments.length, copyToClipboard, enterCopyPreview, confirmCopyPreview, cancelCopyPreview, deleteSelectedSegments]);
 
-  // 导入JSON文件
+  // Import a JSON file
   const handleImportJSON = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -267,7 +267,7 @@ function App() {
     reader.readAsText(file);
   }, [importData]);
 
-  // 缩放处理：factor为缩放倍数；传入screenPos（画布坐标）时以该点为中心缩放
+  // Zoom handler: factor is the multiplier; when screenPos (canvas coords) is given, zoom around that point
   const handleZoom = useCallback((factor: number, screenPos?: Point) => {
     const canvas = canvasRef.current;
     setViewport(prev => {
@@ -276,9 +276,9 @@ function App() {
       if (!screenPos || !canvas) {
         return { ...prev, scale: newScale };
       }
-      // 保持鼠标下方的世界点在屏幕上位置不变
-      const dx = screenPos.x - canvas.width / 2;
-      const dy = screenPos.y - canvas.height / 2;
+      // Keep the world point under the cursor fixed on screen
+      const dx = screenPos.x - canvas.clientWidth / 2;
+      const dy = screenPos.y - canvas.clientHeight / 2;
       const worldX = prev.centerX + dx / prev.scale;
       const worldY = prev.centerY - dy / prev.scale;
       return {
@@ -289,12 +289,21 @@ function App() {
     });
   }, [canvasRef, setViewport]);
 
-  // 复位视口（回原点、100%缩放）
+  // Pan by a screen-pixel delta (used by the two-finger touch gesture)
+  const handleTouchPan = useCallback((dxCss: number, dyCss: number) => {
+    setViewport(prev => ({
+      ...prev,
+      centerX: prev.centerX - dxCss / prev.scale,
+      centerY: prev.centerY + dyCss / prev.scale,
+    }));
+  }, [setViewport]);
+
+  // Reset the viewport (origin, 100% zoom)
   const resetViewport = useCallback(() => {
     setViewport({ centerX: 0, centerY: 0, scale: BASE_SCALE });
   }, [setViewport]);
 
-  // 适应内容：缩放视口刚好框住所有可见波形（四周留10%边距）
+  // Fit to content: zoom the viewport to enclose all visible waveforms (10% margin)
   const fitToContent = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -314,12 +323,12 @@ function App() {
       });
     });
 
-    const xRange = Math.max(xMax - xMin, 0.5); // 防止单点/水平线导致除零
+    const xRange = Math.max(xMax - xMin, 0.5); // avoid division by zero for single points / flat lines
     const yRange = Math.max(yMax - yMin, 0.5);
     const scale = Math.max(MIN_SCALE, Math.min(
       MAX_SCALE,
-      canvas.width / (xRange * 1.2),
-      canvas.height / (yRange * 1.2)
+      canvas.clientWidth / (xRange * 1.2),
+      canvas.clientHeight / (yRange * 1.2)
     ));
 
     setViewport({
@@ -329,13 +338,13 @@ function App() {
     });
   }, [segments, groups, canvasRef, setViewport]);
 
-  // 切换选中组时清除activeSegment
+  // Clear activeSegment when switching groups
   const handleSelectGroup = useCallback((groupId: string | null) => {
     setSelectedGroup(groupId);
-    setActiveSegment(null); // 清除高亮状态
+    setActiveSegment(null); // clear the highlight
   }, [setSelectedGroup, setActiveSegment]);
 
-  // 获取鼠标在世界坐标系中的位置
+  // Mouse position in world coordinates
   const getMouseWorldPos = useCallback((e: React.MouseEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -348,11 +357,11 @@ function App() {
     return screenToWorld(screenPoint, canvas);
   }, [canvasRef, screenToWorld]);
 
-  // 检查是否点击了控制点（只检测选中组的线段）
+  // Hit-test control points (selected group only)
   const checkControlPointHit = useCallback((e: React.MouseEvent): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
-    if (!selectedGroup) return null; // 没有选中组时不检测
+    if (!selectedGroup) return null; // no hit-testing without a selected group
     
     const rect = canvas.getBoundingClientRect();
     const clickPoint = {
@@ -361,7 +370,7 @@ function App() {
     };
     
     for (const segment of segments) {
-      // 只检测选中组的线段
+      // only test segments of the selected group
       if (segment.groupId !== selectedGroup) continue;
       if (segment.control) {
         const controlScreen = worldToScreen(segment.control, canvas);
@@ -377,11 +386,11 @@ function App() {
     return null;
   }, [segments, selectedGroup, worldToScreen, canvasRef]);
 
-  // 检查是否点击了线段中点（编辑模式用，只检测选中组的线段）
+  // Hit-test segment midpoints (edit mode, selected group only)
   const checkMidpointHit = useCallback((e: React.MouseEvent): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
-    if (!selectedGroup) return null; // 没有选中组时不检测
+    if (!selectedGroup) return null; // no hit-testing without a selected group
     
     const rect = canvas.getBoundingClientRect();
     const clickPoint = {
@@ -390,7 +399,7 @@ function App() {
     };
     
     for (const segment of segments) {
-      // 只检测选中组的线段
+      // only test segments of the selected group
       if (segment.groupId !== selectedGroup) continue;
       
       const start = worldToScreen(segment.start, canvas);
@@ -411,11 +420,11 @@ function App() {
     return null;
   }, [segments, selectedGroup, worldToScreen, canvasRef]);
 
-  // 检查是否点击了线段端点（编辑模式用，只检测选中组的线段）
+  // Hit-test segment endpoints (edit mode, selected group only)
   const checkEndpointHit = useCallback((e: React.MouseEvent): { segmentId: string; point: 'start' | 'end' } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
-    if (!selectedGroup) return null; // 没有选中组时不检测
+    if (!selectedGroup) return null; // no hit-testing without a selected group
     
     const rect = canvas.getBoundingClientRect();
     const clickPoint = {
@@ -424,7 +433,7 @@ function App() {
     };
     
     for (const segment of segments) {
-      // 只检测选中组的线段
+      // only test segments of the selected group
       if (segment.groupId !== selectedGroup) continue;
       
       const start = worldToScreen(segment.start, canvas);
@@ -449,7 +458,7 @@ function App() {
     return null;
   }, [segments, selectedGroup, worldToScreen, canvasRef]);
 
-  // 检查是否点击了线段（用于删除）
+  // Hit-test segments (used for delete/select)
   const checkSegmentHit = useCallback((e: React.MouseEvent): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -477,7 +486,7 @@ function App() {
     return closestSegment;
   }, [segments, worldToScreen, canvasRef]);
 
-  // 计算点到线段的距离
+  // Distance from a point to a segment
   const pointToLineDistance = (p: Point, a: Point, b: Point): number => {
     const ab = { x: b.x - a.x, y: b.y - a.y };
     const ap = { x: p.x - a.x, y: p.y - a.y };
@@ -497,8 +506,8 @@ function App() {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
 
-    // 画布平移：中键，或空格+左键（任何模式下可用）
-    if (e.button === 1 || (spaceHeld && e.button === 0)) {
+    // Canvas panning: middle button or Space+left in any mode, or plain left drag in pan mode
+    if (e.button === 1 || ((spaceHeld || mode === 'pan') && e.button === 0)) {
       panStartRef.current = {
         clientX: e.clientX,
         clientY: e.clientY,
@@ -508,7 +517,7 @@ function App() {
       setIsPanning(true);
       return;
     }
-    if (e.button !== 0) return; // 忽略右键
+    if (e.button !== 0) return; // ignore right-clicks
 
     if (mode === 'draw') {
       const worldPos = getMouseWorldPos(e);
@@ -517,9 +526,9 @@ function App() {
       setDrawStart(snapped);
       setCurrentMouse(snapped);
     } else if (mode === 'edit') {
-      // 编辑模式：需要先选中一个组
+      // Edit mode requires a selected group
       if (!selectedGroup) {
-        // 没有选中组时，只能进行选择操作
+        // Without a selected group, only selection is possible
         const segmentId = checkSegmentHit(e);
         if (segmentId) {
           toggleSegmentSelection(segmentId, e.shiftKey);
@@ -529,9 +538,9 @@ function App() {
         return;
       }
       
-      // 编辑模式：优先检查控制点、端点、中点（拖动功能）- 只针对选中组
+      // Edit mode: check control points, endpoints, then midpoints (drag targets) - selected group only
       
-      // 1. 检查是否点击了控制点
+      // 1. Control point hit?
       const controlSegmentId = checkControlPointHit(e);
       if (controlSegmentId) {
         dragChangedRef.current = false;
@@ -539,7 +548,7 @@ function App() {
         return;
       }
 
-      // 2. 检查是否点击了端点
+      // 2. Endpoint hit?
       const endpointInfo = checkEndpointHit(e);
       if (endpointInfo) {
         dragChangedRef.current = false;
@@ -547,26 +556,26 @@ function App() {
         return;
       }
 
-      // 3. 检查是否点击了中点（创建曲线）
+      // 3. Midpoint hit (creates a curve)?
       const midpointSegmentId = checkMidpointHit(e);
       if (midpointSegmentId) {
         setDraggingMidpoint(midpointSegmentId);
         const worldPos = getMouseWorldPos(e);
         const snapped = snapToGrid(worldPos);
-        // 添加控制点（线段变曲线是实际改动，松手时统一存历史）
+        // Add a control point (line->curve is a real change; history saved on mouse-up)
         updateControlPoint(midpointSegmentId, snapped);
         dragChangedRef.current = true;
         return;
       }
       
-      // 4. 检查是否点击了线段（用于选择）
+      // 4. Segment hit (for selection)?
       const segmentId = checkSegmentHit(e);
       if (segmentId) {
         toggleSegmentSelection(segmentId, e.shiftKey);
         return;
       }
       
-      // 点击空白处清除选择
+      // Clicking empty space clears the selection
       clearSegmentSelection();
     } else if (mode === 'delete') {
       const segmentId = checkSegmentHit(e);
@@ -579,19 +588,19 @@ function App() {
         const snapped = snapToGrid(worldPos);
         setMovingGroup(selectedGroup);
         setMoveStartPoint(snapped);
-        setMoveOffset({ x: 0, y: 0 }); // 重置偏移量
+        setMoveOffset({ x: 0, y: 0 }); // reset the offset
       }
     } else if (mode === 'select') {
-      // 选择模式：点击线段选中，按住Shift连选（可跨组）
+      // Select mode: click to select, Shift+click to multi-select (across groups)
       if (isCopyPreview) {
-        // 复制预览模式下，点击确认复制
+        // In paste preview, a click confirms the paste
         confirmCopyPreview();
         setSelectCopyOffset(null);
         return;
       }
       const segmentId = checkSegmentHit(e);
       if (segmentId) {
-        // 按在已选中的线段上（不按Shift）：开始拖动整体移动
+        // Mouse-down on an already-selected segment (no Shift): start dragging the selection
         if (selectedSegments.has(segmentId) && !e.shiftKey) {
           const worldPos = getMouseWorldPos(e);
           const snapped = snapToGrid(worldPos);
@@ -602,7 +611,7 @@ function App() {
         }
         toggleSegmentSelection(segmentId, e.shiftKey);
       } else {
-        // 点击空白处：开始框选（不吸附格点）；不按Shift先清除已有选择
+        // Empty space: start rubber-band selection (unsnapped); without Shift, clear the selection first
         if (!e.shiftKey) {
           clearSegmentSelection();
         }
@@ -614,7 +623,7 @@ function App() {
   }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 画布平移中
+    // Canvas panning in progress
     if (isPanning && panStartRef.current) {
       const start = panStartRef.current;
       const dx = e.clientX - start.clientX;
@@ -632,48 +641,48 @@ function App() {
     setCurrentMouse(snapped);
     
     if (isDrawing && drawStart) {
-      // 绘制预览已自动更新
+      // the draw preview updates automatically
     } else if (draggingControl) {
-      // 拖动控制点
+      // Dragging a control point
       updateControlPoint(draggingControl, snapped);
       dragChangedRef.current = true;
     } else if (draggingMidpoint) {
-      // 拖动中点（调整曲线控制点）
+      // Dragging a midpoint (adjusting the curve control point)
       updateControlPoint(draggingMidpoint, snapped);
     } else if (movingGroup && moveStartPoint) {
       const rawDeltaX = snapped.x - moveStartPoint.x;
       const rawDeltaY = snapped.y - moveStartPoint.y;
-      // 吸附到最小格点
+      // Snap to the minor grid
       const snapDeltaX = Math.round(rawDeltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
       const snapDeltaY = Math.round(rawDeltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
-      // 只有实际有偏移时才移动和更新
+      // Only move/update when there is an actual offset
       if (snapDeltaX !== 0 || snapDeltaY !== 0) {
         moveGroup(movingGroup, snapDeltaX, snapDeltaY);
         setMoveStartPoint(snapped);
-        // 累积显示总偏移量
+        // Accumulate the total offset for display
         setMoveOffset(prev => ({
           x: (prev?.x || 0) + snapDeltaX,
           y: (prev?.y || 0) + snapDeltaY
         }));
       }
     } else if (draggingEndpoint) {
-      // 拖动端点
+      // Dragging an endpoint
       moveSegmentEndpoint(draggingEndpoint.segmentId, draggingEndpoint.point, snapped);
       dragChangedRef.current = true;
     } else if (marquee) {
-      // 框选中：更新矩形（用未吸附的真实坐标）
+      // Rubber-band in progress: update the rect (unsnapped coords)
       setMarquee({ start: marquee.start, end: worldPos });
     } else if (isDraggingSelected && dragStartPoint) {
-      // 拖动移动选中的线段
+      // Dragging the selected segments
       const rawDeltaX = snapped.x - dragStartPoint.x;
       const rawDeltaY = snapped.y - dragStartPoint.y;
-      // 吸附到最小格点
+      // Snap to the minor grid
       const snapDeltaX = Math.round(rawDeltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
       const snapDeltaY = Math.round(rawDeltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
       if (snapDeltaX !== 0 || snapDeltaY !== 0) {
         moveSelectedSegments(snapDeltaX, snapDeltaY);
         setDragStartPoint(snapped);
-        // 累积显示总偏移量
+        // Accumulate the total offset for display
         setMoveOffset(prev => ({
           x: (prev?.x || 0) + snapDeltaX,
           y: (prev?.y || 0) + snapDeltaY
@@ -683,12 +692,12 @@ function App() {
       const segmentId = checkSegmentHit(e);
       setActiveSegment(segmentId);
     } else if (mode === 'select') {
-      // 选择模式 - 高亮悬停的线段
+      // Select mode - highlight the hovered segment
       if (!isCopyPreview) {
         const segmentId = checkSegmentHit(e);
         setActiveSegment(segmentId);
       } else {
-        // 复制预览模式 - 更新偏移量
+        // Paste preview - update the offset
         updateCopyPreviewOffset(snapped);
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
@@ -702,7 +711,7 @@ function App() {
       return;
     }
     if (marquee) {
-      // 框选结束：拖出的矩形超过几个像素才算框选，否则视为单纯点击空白
+      // Rubber-band end: counts as a selection only if the rect exceeds a few pixels, otherwise it's a plain click
       const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scale;
       const pxH = Math.abs(marquee.end.y - marquee.start.y) * viewport.scale;
       if (pxW > 4 || pxH > 4) {
@@ -725,14 +734,14 @@ function App() {
       setDrawStart(null);
       setCurrentMouse(null);
     } else if (draggingControl) {
-      // 拖动曲线控制点结束：有实际改动才存历史
+      // Control-point drag finished: save history only if something changed
       if (dragChangedRef.current) {
         dragChangedRef.current = false;
         setTimeout(saveToHistory, 0);
       }
       setDraggingControl(null);
     } else if (draggingMidpoint) {
-      // 拖中点创建/调整曲线结束：存最终位置到历史
+      // Midpoint drag finished: save the final curve position to history
       if (dragChangedRef.current) {
         dragChangedRef.current = false;
         setTimeout(saveToHistory, 0);
@@ -740,9 +749,9 @@ function App() {
       setDraggingMidpoint(null);
     } else if (movingGroup) {
       finishMoveGroup();
-      setMoveOffset(null); // 清除偏移显示
+      setMoveOffset(null); // clear the offset display
     } else if (draggingEndpoint) {
-      // 拖动端点结束：有实际改动才存历史
+      // Endpoint drag finished: save history only if something changed
       if (dragChangedRef.current) {
         dragChangedRef.current = false;
         setTimeout(saveToHistory, 0);
@@ -750,7 +759,7 @@ function App() {
       setDraggingEndpoint(null);
       setActiveSegment(null);
     } else if (isDraggingSelected) {
-      // 拖动移动选中的线段结束：没有实际移动就不存历史
+      // Selection drag finished: skip history if nothing actually moved
       if (moveOffset && (moveOffset.x !== 0 || moveOffset.y !== 0)) {
         finishMoveSelectedSegments();
       } else {
@@ -772,12 +781,13 @@ function App() {
     }
   }, [mode, checkSegmentHit, getMouseWorldPos, snapToGrid, addControlPoint]);
 
-  // 工具按钮说明
+  // Tool button tooltips
   const TOOLTIPS: Record<string, string> = {
     draw: '点击并拖动画直线，吸附格点',
     edit: '先选组，再拖动端点/中点/控制点',
     delete: '点击线段删除',
     moveGroup: '拖动整组波形移动',
+    pan: '拖动平移画布（触屏单指拖动，双指捏合缩放）',
     select: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制',
     undo: '撤销上一步操作',
     redo: '恢复上一步操作',
@@ -803,21 +813,22 @@ function App() {
 
   return (
 
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="w-full mx-auto" style={{ maxWidth: '95%', height: '92vh' }}>
-        {/* 标题 */}
+    <div className="min-h-screen bg-gray-100 p-2 sm:p-4">
+      <div className="w-full mx-auto max-w-[95%] lg:h-[92vh]">
+        {/* Title */}
         <h1 className="text-xl font-bold text-gray-800 mb-3">波形绘制工具</h1>
 
-        {/* 工具栏 */}
-        <div className="flex justify-between items-center mb-3">
-          <div className="flex gap-2">
+        {/* Toolbar: wraps on narrow screens */}
+        <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
+          <div className="flex flex-wrap gap-2">
             <ToolButton toolMode="select" label="选择" icon={MousePointer2} />
             <ToolButton toolMode="draw" label="绘制" icon={Pencil} />
             <ToolButton toolMode="edit" label="编辑" icon={Edit2} />
             <ToolButton toolMode="delete" label="删除" icon={Trash2} />
             <ToolButton toolMode="moveGroup" label="移组" icon={GripHorizontal} />
+            <ToolButton toolMode="pan" label="平移" icon={Hand} />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <TooltipButton tooltip={TOOLTIPS.svg}>
               <Button variant="outline" size="sm" onClick={() => downloadSVG()} className="flex items-center gap-1">
                 <Image className="w-4 h-4" />SVG
@@ -855,23 +866,23 @@ function App() {
           </div>
         </div>
 
-        {/* 主内容区 */}
-        <div className="flex gap-4 h-[calc(92vh-120px)]">
-          {/* 左侧：画布 + 坐标设置 */}
-          <div className="flex flex-col gap-3" style={{ width: '75%' }}>
-            {/* 画布 */}
-            <div className="relative bg-white rounded-lg shadow flex-1" style={{ touchAction: 'none', overflow: 'hidden' }}>
-              {/* 缩放控制（左下） */}
+        {/* Main content: stacked vertically on narrow screens, side-by-side on desktop */}
+        <div className="flex flex-col lg:flex-row gap-4 lg:h-[calc(92vh-120px)]">
+          {/* Left: canvas + axis settings */}
+          <div className="flex flex-col gap-3 w-full lg:w-3/4">
+            {/* Canvas */}
+            <div className="relative bg-white rounded-lg shadow h-[55vh] lg:h-auto lg:flex-1" style={{ touchAction: 'none', overflow: 'hidden' }}>
+              {/* Zoom control (bottom-left) */}
               <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-white/90 rounded-lg px-2 py-1 shadow border">
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.8)}>−</Button>
                 <span className="text-xs font-mono w-14 text-center">{Math.round((viewport.scale / BASE_SCALE) * 100)}%</span>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>复位</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>适应内容</Button>
-                <span className="text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
+                <span className="hidden sm:inline text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
               </div>
 
-              {/* 偏移值显示（移动组或复制预览时） */}
+              {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (
                 <div className="absolute top-3 right-3 z-10 bg-black/70 text-white px-3 py-2 rounded text-sm font-mono">
                   <div>ΔX: {moveOffset.x >= 0 ? '+' : ''}{(moveOffset.x / axisConfig.xGridSize).toFixed(1)}格</div>
@@ -879,7 +890,7 @@ function App() {
                 </div>
               )}
               
-              {/* 选择模式复制预览偏移显示（画布右上角） */}
+              {/* Paste-preview offset readout (top-right of canvas) */}
               {isCopyPreview && selectCopyOffset && (
                 <div className="absolute top-3 right-3 z-10 bg-blue-600/90 text-white px-3 py-2 rounded text-sm font-mono shadow-lg">
                   <div className="text-xs text-blue-200 mb-1">复制预览 (Enter确认/Esc取消)</div>
@@ -910,18 +921,19 @@ function App() {
                 onMouseUp={handleMouseUp}
                 onDoubleClick={handleDoubleClick}
                 onZoomChange={handleZoom}
-                panning={isPanning ? 'active' : spaceHeld ? 'ready' : null}
+                onPan={handleTouchPan}
+                panning={isPanning || isDraggingSelected ? 'active' : spaceHeld ? 'ready' : null}
                 selectionRect={marquee}
                 canvasRef={canvasRef}
               />
             </div>
 
-            {/* 坐标设置 */}
+            {/* Axis settings */}
             <div className="bg-white p-3 rounded-lg shadow">
               <div className="text-sm font-medium mb-2 text-gray-700">坐标设置</div>
-              <div className="flex items-center">
-                {/* Y坐标（左侧） */}
-                <div className="flex items-center gap-4 flex-1">
+              <div className="flex flex-wrap items-center gap-y-2">
+                {/* Y axis (left) */}
+                <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">Y单位</Label>
                     <Input value={axisConfig.yUnit} onChange={(e) => setAxisConfig({ ...axisConfig, yUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
@@ -935,10 +947,10 @@ function App() {
                     <Input type="number" step="0.5" value={axisConfig.yMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
                   </div>
                 </div>
-                {/* 分割线 */}
-                <div className="w-px h-8 bg-gray-300 mx-4" />
-                {/* X坐标（右侧） */}
-                <div className="flex items-center gap-4 flex-1">
+                {/* Divider (desktop only) */}
+                <div className="hidden lg:block w-px h-8 bg-gray-300 mx-4" />
+                {/* X axis (right) */}
+                <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">X单位</Label>
                     <Input value={axisConfig.xUnit} onChange={(e) => setAxisConfig({ ...axisConfig, xUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
@@ -956,8 +968,8 @@ function App() {
             </div>
           </div>
 
-          {/* 右侧：波形组管理 */}
-          <div style={{ width: '25%' }} className="h-full">
+          {/* Right: waveform group management */}
+          <div className="w-full lg:w-1/4 lg:h-full">
             <Toolbar
               groups={groups}
               selectedGroup={selectedGroup}
@@ -979,10 +991,10 @@ function App() {
           </div>
         </div>
 
-        {/* 页脚：访问统计 + 相关链接 */}
+        {/* Footer: visit counter + links */}
         <div className="flex justify-between items-center mt-2 px-1 text-xs text-gray-400">
           <div className="flex gap-2">
-            {/* 不蒜子统计：脚本加载完成前自动隐藏 */}
+            {/* Busuanzi counter: hidden until the script loads */}
             <span id="busuanzi_container_site_pv" style={{ display: 'none' }}>
               本工具已被使用 <span id="busuanzi_value_site_pv" /> 次
             </span>

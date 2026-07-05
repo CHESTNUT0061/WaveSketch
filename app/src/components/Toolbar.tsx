@@ -17,7 +17,7 @@ import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
 import type { WaveformGroup, LineSegment, CalcRpnToken } from '@/types/waveform';
 
-// 颜色选择器组件
+// Color picker component
 interface ColorPickerProps {
   currentColor: string;
   onSelect: (color: string) => void;
@@ -80,7 +80,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* 预设颜色 */}
+      {/* Preset colors */}
       <div className="mb-3">
         <div className="text-xs text-gray-500 mb-2">预设颜色</div>
         <div className="grid grid-cols-5 gap-1">
@@ -98,7 +98,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
         </div>
       </div>
 
-      {/* 自定义色盘 */}
+      {/* Custom color */}
       <div className="mb-3">
         <div className="text-xs text-gray-500 mb-2">自定义颜色</div>
         <div className="flex items-center gap-2">
@@ -120,7 +120,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
         </div>
       </div>
 
-      {/* RGB输入 */}
+      {/* RGB inputs */}
       <div className="mb-3">
         <div className="text-xs text-gray-500 mb-2">RGB</div>
         <div className="flex gap-1">
@@ -160,7 +160,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
         </div>
       </div>
 
-      {/* 预览和按钮 */}
+      {/* Preview and actions */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div 
@@ -211,7 +211,7 @@ interface ToolbarProps {
     groupName: string,
     customColor?: string
   ) => void;
-  // 选择模式相关
+  // Select-mode props
   mode?: string;
   isCopyPreview?: boolean;
   clipboardSegments?: LineSegment[];
@@ -258,10 +258,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div className="w-full bg-gray-50 p-4 rounded-lg border border-gray-200 overflow-y-auto h-full">
-      {/* 标题 */}
+      {/* Title */}
       <h2 className="text-lg font-bold text-gray-800 mb-4">波形组管理</h2>
       
-      {/* 波形组管理 */}
+      {/* Waveform group management */}
       <div className="mb-4">
         <Label className="text-sm font-medium mb-2 block">波形组</Label>
         <div className="flex gap-2 mb-2">
@@ -336,7 +336,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 )}
               </div>
               <div className="flex gap-1 items-center">
-                {/* 颜色选择器 */}
+                {/* Color picker */}
                 {colorPickerGroup === group.id ? (
                   <ColorPicker 
                     currentColor={group.color}
@@ -418,7 +418,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           ))}
         </div>
         
-        {/* 清空所有 */}
+        {/* Clear all */}
         <Button
           variant="destructive"
           size="sm"
@@ -430,10 +430,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </Button>
       </div>
 
-      {/* 选择模式 - 显示已选线段和操作提示 */}
+      {/* Select mode - selection status and hints */}
       {mode === 'select' && (
         <div className="mb-4">
-          {/* 选择状态 */}
+          {/* Selection status */}
           {selectedSegments.size > 0 && !isCopyPreview && (
             <div className="p-3 bg-blue-50 rounded mb-2">
               <div className="text-sm font-medium mb-2 text-blue-800">
@@ -447,7 +447,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           )}
           
-          {/* 已选择但未复制时 */}
+          {/* Selected but not yet copied */}
           {selectedSegments.size > 0 && clipboardSegments.length === 0 && !isCopyPreview && (
             <div className="p-3 bg-blue-50 rounded mb-2">
               <div className="text-xs text-blue-600 space-y-1">
@@ -457,7 +457,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           )}
           
-          {/* 已复制到剪贴板但未粘贴 */}
+          {/* Copied to clipboard, not yet pasted */}
           {clipboardSegments.length > 0 && !isCopyPreview && (
             <div className="p-3 bg-indigo-50 rounded mb-2">
               <div className="text-sm font-medium mb-1 text-indigo-800">
@@ -470,7 +470,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           )}
           
-          {/* 未选择时显示提示 */}
+          {/* Hints when nothing is selected */}
           {selectedSegments.size === 0 && clipboardSegments.length === 0 && !isCopyPreview && (
             <div className="p-3 bg-gray-50 rounded mb-2">
               <div className="text-xs text-gray-500 space-y-1">
@@ -481,7 +481,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           )}
           
-          {/* 复制预览状态 */}
+          {/* Paste preview status */}
           {isCopyPreview && (
             <div className="p-3 bg-green-50 rounded border border-green-200">
               <div className="text-sm font-medium mb-2 text-green-800">
@@ -497,7 +497,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       )}
 
-      {/* 标签页切换 */}
+      {/* Tab switcher */}
       <div className="mb-3">
         <div className="flex border-b border-gray-200">
           <button
@@ -525,7 +525,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* 标签页内容 - 直接显示 */}
+      {/* Tab content */}
       <div className="mb-4">
         {activeTab === 'generator' && (
           <WaveformGenerator onGenerate={onGenerateWaveform} />

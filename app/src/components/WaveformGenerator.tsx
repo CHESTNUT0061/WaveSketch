@@ -39,7 +39,7 @@ const WAVE_TYPES: { value: WaveformType; label: string }[] = [
   { value: 'damped', label: '阻尼振荡（振铃）' },
 ];
 
-// 使用占空比参数的波形类型
+// Waveform types that use the duty-cycle parameter
 const DUTY_TYPES: WaveformType[] = ['square', 'ramp', 'triangle', 'trapezoid'];
 const DUTY_LABELS: Partial<Record<WaveformType, string>> = {
   square: '占空比 (%)',
@@ -62,26 +62,26 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   const [enablePhaseShift, setEnablePhaseShift] = useState(false);
   const [phaseCount, setPhaseCount] = useState(4);
 
-  // 预定义的颜色数组（用于多相波形）
+  // Preset colors for multi-phase waveforms
   const PHASE_COLORS = [
-    '#3b82f6', // 蓝色
-    '#ef4444', // 红色
-    '#10b981', // 绿色
-    '#f59e0b', // 黄色
-    '#8b5cf6', // 紫色
-    '#ec4899', // 粉色
-    '#06b6d4', // 青色
-    '#84cc16', // 黄绿
-    '#f97316', // 橙色
-    '#6366f1', // 靛蓝
+    '#3b82f6', // blue
+    '#ef4444', // red
+    '#10b981', // green
+    '#f59e0b', // amber
+    '#8b5cf6', // purple
+    '#ec4899', // pink
+    '#06b6d4', // cyan
+    '#84cc16', // lime
+    '#f97316', // orange
+    '#6366f1', // indigo
   ];
 
   const handleGenerate = () => {
     if (enablePhaseShift) {
-      // 自动生成相位差 = 360 / 相数
+      // Phase step = 360 / phase count
       const autoPhaseStep = 360 / phaseCount;
-      // 生成多组错相波形，每组使用不同颜色
-      // 只在最后一相保存历史记录
+      // Generate interleaved phases, one group per phase with distinct colors
+      // Save history only after the last phase
       for (let i = 0; i < phaseCount; i++) {
         const phase = (i * autoPhaseStep) % 360;
         const color = PHASE_COLORS[i % PHASE_COLORS.length];
@@ -99,7 +99,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         }, `${WAVE_TYPES.find(w => w.value === type)?.label}_${i + 1}(${phase.toFixed(1)}°)`, color, !isLast);
       }
     } else {
-      // 生成单组波形
+      // Generate a single group
       onGenerate(type, {
         amplitude,
         period,
@@ -116,7 +116,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
 
   return (
     <div className="p-3 bg-purple-50 rounded border border-purple-200">
-      {/* 波形类型 */}
+      {/* Waveform type */}
       <div className="mb-3">
         <Label className="text-xs text-gray-600 mb-1 block">波形类型</Label>
         <Select value={type} onValueChange={(v) => setType(v as WaveformType)}>
@@ -131,7 +131,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </Select>
       </div>
 
-      {/* 参数行1 */}
+      {/* Parameter row 1 */}
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">幅度</Label>
@@ -155,7 +155,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       </div>
 
-      {/* 参数行2 */}
+      {/* Parameter row 2 */}
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">总周期数</Label>
@@ -179,7 +179,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       </div>
 
-      {/* 直流偏置（所有波形通用） */}
+      {/* DC offset (all waveform types) */}
       <div className="mb-2">
         <Label className="text-xs text-gray-600 mb-1 block">直流偏置</Label>
         <Input
@@ -191,7 +191,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         />
       </div>
 
-      {/* 占空比参数 */}
+      {/* Duty cycle */}
       {DUTY_TYPES.includes(type) && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">
@@ -218,7 +218,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       )}
 
-      {/* 梯形波边沿时间 */}
+      {/* Trapezoid edge time */}
       {type === 'trapezoid' && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">边沿时间占比 (%)</Label>
@@ -237,7 +237,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       )}
 
-      {/* 阻尼振荡衰减时间常数 */}
+      {/* Damped-ringing decay constant */}
       {type === 'damped' && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">衰减时间常数 τ（周期数）</Label>
@@ -255,7 +255,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         </div>
       )}
 
-      {/* 错相功能 */}
+      {/* Phase interleaving */}
       <div className="mb-3 pt-2 border-t border-purple-200">
         <div className="flex items-center gap-2 mb-2">
           <Checkbox
@@ -288,7 +288,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         )}
       </div>
 
-      {/* 生成按钮 */}
+      {/* Generate button */}
       <Button
         size="sm"
         onClick={handleGenerate}
