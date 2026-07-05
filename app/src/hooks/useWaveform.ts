@@ -20,6 +20,11 @@ const DEFAULT_AXIS_CONFIG: AxisConfig = {
   yMajorGridSize: 2,
 };
 
+// XML 文本转义（组名、单位标签可能含特殊字符）
+const escapeXml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
 // localStorage 自动保存
 const DRAFT_KEY = 'waveform-draft-v1';
 
@@ -929,23 +934,21 @@ export function useWaveform() {
 
 
     // 构建SVG内容
+    // 注意：全部使用内联样式属性而不是CSS类——Visio等软件导入SVG时不解析<style>块，
+    // 用类的话线条颜色会丢失（显示为白色/默认色）
+    const MINOR_STYLE = 'stroke="#e5e7eb" stroke-width="1"';
+    const MAJOR_STYLE = 'stroke="#6b7280" stroke-width="2"';
+    const AXIS_STYLE = 'stroke="#000000" stroke-width="3"';
+    const TICK_TEXT_STYLE = 'font-family="sans-serif" font-size="13" font-weight="bold" fill="#1f2937"';
+    const UNIT_TEXT_STYLE = 'font-family="sans-serif" font-size="16" font-weight="bold" fill="#000000"';
+
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <style>
-      .grid-line-minor { stroke: #e5e7eb; stroke-width: 1; }
-      .grid-line-major { stroke: #6b7280; stroke-width: 2; }
-      .axis-line { stroke: #000000; stroke-width: 3; }
-      .axis-text { font-family: sans-serif; font-size: 13px; font-weight: bold; fill: #1f2937; }
-      .axis-label { font-family: sans-serif; font-size: 16px; font-weight: bold; fill: #000000; }
-    </style>
-  </defs>
-  
   <!-- 背景 -->
   <rect width="${width}" height="${height}" fill="white"/>
-  
-  <!-- 次网格线（虚线） -->
-  <g class="grid-minor">
+
+  <!-- 次网格线 -->
+  <g id="grid-minor">
 `;
 
     // 用整数索引循环避免浮点累加误差
@@ -957,7 +960,7 @@ export function useWaveform() {
       const x = i * axisConfig.xGridSize;
       if (isMajor(x, axisConfig.xMajorGridSize)) continue;
       const screenX = worldToSVG({ x, y: 0 }).x;
-      svg += `    <line class="grid-line-minor" x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${MINOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
     // 水平次网格线
@@ -965,13 +968,13 @@ export function useWaveform() {
       const y = i * axisConfig.yGridSize;
       if (isMajor(y, axisConfig.yMajorGridSize)) continue;
       const screenY = worldToSVG({ x: 0, y }).y;
-      svg += `    <line class="grid-line-minor" x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
+      svg += `    <line ${MINOR_STYLE} x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
     }
 
     svg += `  </g>
 
   <!-- 主网格线 -->
-  <g class="grid-major">
+  <g id="grid-major">
 `;
 
     // 垂直主网格线
@@ -979,7 +982,7 @@ export function useWaveform() {
     const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
     for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
       const screenX = worldToSVG({ x: i * axisConfig.xMajorGridSize, y: 0 }).x;
-      svg += `    <line class="grid-line-major" x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${MAJOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
     // 水平主网格线
@@ -987,13 +990,13 @@ export function useWaveform() {
     const yMajorIndexEnd = Math.floor(yMax / axisConfig.yMajorGridSize + 1e-9);
     for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
       const screenY = worldToSVG({ x: 0, y: i * axisConfig.yMajorGridSize }).y;
-      svg += `    <line class="grid-line-major" x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
+      svg += `    <line ${MAJOR_STYLE} x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
     }
 
     svg += `  </g>
 
   <!-- 坐标轴 -->
-  <g class="axes">
+  <g id="axes">
 `;
 
     // 坐标轴只在原点落在范围内时绘制；不在范围内时刻度标签贴边显示
@@ -1003,16 +1006,16 @@ export function useWaveform() {
     const originX = hasYAxis ? worldToSVG({ x: 0, y: 0 }).x : padding;
 
     if (hasXAxis) {
-      svg += `    <line class="axis-line" x1="${padding}" y1="${originY.toFixed(2)}" x2="${width - padding}" y2="${originY.toFixed(2)}"/>\n`;
+      svg += `    <line ${AXIS_STYLE} x1="${padding}" y1="${originY.toFixed(2)}" x2="${width - padding}" y2="${originY.toFixed(2)}"/>\n`;
     }
     if (hasYAxis) {
-      svg += `    <line class="axis-line" x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${AXIS_STYLE} x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${height - padding}"/>\n`;
     }
 
     svg += `  </g>
 
   <!-- 刻度标签（主格点） -->
-  <g class="tick-labels">
+  <g id="tick-labels">
 `;
 
     // X轴刻度（主格点）
@@ -1021,7 +1024,7 @@ export function useWaveform() {
       if (Math.abs(x) < 0.001 && hasXAxis && hasYAxis) continue; // 原点不标数字
       const screenX = worldToSVG({ x, y: 0 }).x;
       const label = Number.isInteger(x) ? x.toString() : x.toFixed(1);
-      svg += `    <text class="axis-text" x="${screenX.toFixed(2)}" y="${(originY + 20).toFixed(2)}" text-anchor="middle">${label}</text>\n`;
+      svg += `    <text ${TICK_TEXT_STYLE} x="${screenX.toFixed(2)}" y="${(originY + 20).toFixed(2)}" text-anchor="middle">${label}</text>\n`;
     }
 
     // Y轴刻度（主格点）
@@ -1030,29 +1033,42 @@ export function useWaveform() {
       if (Math.abs(y) < 0.001 && hasXAxis && hasYAxis) continue;
       const screenY = worldToSVG({ x: 0, y }).y;
       const label = Number.isInteger(y) ? y.toString() : y.toFixed(1);
-      svg += `    <text class="axis-text" x="${(originX - 10).toFixed(2)}" y="${(screenY + 4).toFixed(2)}" text-anchor="end">${label}</text>\n`;
+      svg += `    <text ${TICK_TEXT_STYLE} x="${(originX - 10).toFixed(2)}" y="${(screenY + 4).toFixed(2)}" text-anchor="end">${label}</text>\n`;
     }
 
     svg += `  </g>
 
   <!-- 轴标签 -->
-  <g class="axis-labels">
-    <text class="axis-label" x="${(width - padding + 20).toFixed(2)}" y="${(originY + 5).toFixed(2)}" text-anchor="middle">${axisConfig.xUnit}</text>
-    <text class="axis-label" x="${(originX - 25).toFixed(2)}" y="${(padding - 20).toFixed(2)}" text-anchor="middle">${axisConfig.yUnit}</text>
+  <g id="axis-labels">
+    <text ${UNIT_TEXT_STYLE} x="${(width - padding + 20).toFixed(2)}" y="${(originY + 5).toFixed(2)}" text-anchor="middle">${escapeXml(axisConfig.xUnit)}</text>
+    <text ${UNIT_TEXT_STYLE} x="${(originX - 25).toFixed(2)}" y="${(padding - 20).toFixed(2)}" text-anchor="middle">${escapeXml(axisConfig.yUnit)}</text>
   </g>
 
-  <!-- 波形线段 -->
-  <g class="waveforms">
+  <!-- 波形（按组分层，Visio中取消组合可逐级拆到单条线段） -->
+  <g id="waveforms">
 `;
 
-    segments.forEach(segment => {
-      const group = groups.find(g => g.id === segment.groupId);
-      if (group && !group.visible) return;
-      
-      const path = generatePath(segment);
-      const color = group?.color || '#3b82f6';
-      svg += `    <path d="${path}" stroke="${color}" stroke-width="2" fill="none"/>\n`;
+    groups.forEach((group, gi) => {
+      if (!group.visible) return;
+      const groupSegments = segments.filter(s => s.groupId === group.id);
+      if (groupSegments.length === 0) return;
+
+      svg += `    <g id="wave-group-${gi + 1}">\n      <title>${escapeXml(group.name)}</title>\n`;
+      groupSegments.forEach(segment => {
+        svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="2" fill="none"/>\n`;
+      });
+      svg += `    </g>\n`;
     });
+
+    // 不属于任何组的线段兜底
+    const orphanSegments = segments.filter(s => !groups.some(g => g.id === s.groupId));
+    if (orphanSegments.length > 0) {
+      svg += `    <g id="wave-group-ungrouped">\n`;
+      orphanSegments.forEach(segment => {
+        svg += `      <path d="${generatePath(segment)}" stroke="#3b82f6" stroke-width="2" fill="none"/>\n`;
+      });
+      svg += `    </g>\n`;
+    }
 
     svg += `  </g>
 </svg>`;

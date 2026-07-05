@@ -8,6 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
 
+// 站点链接（GitHub 仓库地址创建后填入，留空则不显示）
+const GITHUB_REPO_URL = '';
+const WPD_URL = 'https://apps.automeris.io/wpd4/';
+
 // 按钮说明组件
 interface TooltipButtonProps {
   children: React.ReactNode;
@@ -168,6 +172,16 @@ function App() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
 
+  // 访问人次统计（不蒜子）：只在正式部署的域名上加载，本地开发不计数
+  React.useEffect(() => {
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
+    const script = document.createElement('script');
+    script.async = true;
+    script.src = 'https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
+    document.body.appendChild(script);
+    return () => { document.body.removeChild(script); };
+  }, []);
+
   // 空格键按住时进入平移待命状态
   React.useEffect(() => {
     const isTypingTarget = (target: EventTarget | null) =>
@@ -281,6 +295,41 @@ function App() {
   const resetViewport = useCallback(() => {
     setViewport({ centerX: 0, centerY: 0, scale: BASE_SCALE });
   }, [setViewport]);
+
+  // 适应内容：缩放视口刚好框住所有可见波形（四周留10%边距）
+  const fitToContent = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const visibleSegments = segments.filter(s => {
+      const g = groups.find(g => g.id === s.groupId);
+      return !g || g.visible;
+    });
+    if (visibleSegments.length === 0) return;
+
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    visibleSegments.forEach(s => {
+      const pts = s.control ? [s.start, s.end, s.control] : [s.start, s.end];
+      pts.forEach(p => {
+        xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x);
+        yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
+      });
+    });
+
+    const xRange = Math.max(xMax - xMin, 0.5); // 防止单点/水平线导致除零
+    const yRange = Math.max(yMax - yMin, 0.5);
+    const scale = Math.max(MIN_SCALE, Math.min(
+      MAX_SCALE,
+      canvas.width / (xRange * 1.2),
+      canvas.height / (yRange * 1.2)
+    ));
+
+    setViewport({
+      centerX: (xMin + xMax) / 2,
+      centerY: (yMin + yMax) / 2,
+      scale,
+    });
+  }, [segments, groups, canvasRef, setViewport]);
 
   // 切换选中组时清除activeSegment
   const handleSelectGroup = useCallback((groupId: string | null) => {
@@ -820,6 +869,7 @@ function App() {
                 <span className="text-xs font-mono w-14 text-center">{Math.round((viewport.scale / BASE_SCALE) * 100)}%</span>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>复位</Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>适应内容</Button>
                 <span className="text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
               </div>
 
@@ -928,6 +978,29 @@ function App() {
               isCopyPreview={isCopyPreview}
               clipboardSegments={clipboardSegments}
             />
+          </div>
+        </div>
+
+        {/* 页脚：访问统计 + 相关链接 */}
+        <div className="flex justify-between items-center mt-2 px-1 text-xs text-gray-400">
+          <div className="flex gap-2">
+            {/* 不蒜子统计：脚本加载完成前自动隐藏 */}
+            <span id="busuanzi_container_site_pv" style={{ display: 'none' }}>
+              本工具已被使用 <span id="busuanzi_value_site_pv" /> 次
+            </span>
+            <span id="busuanzi_container_site_uv" style={{ display: 'none' }}>
+              · 访客 <span id="busuanzi_value_site_uv" /> 人
+            </span>
+          </div>
+          <div className="flex gap-4">
+            <a href={WPD_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
+              推荐：曲线取点工具 WebPlotDigitizer
+            </a>
+            {GITHUB_REPO_URL && (
+              <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
+                GitHub
+              </a>
+            )}
           </div>
         </div>
       </div>
