@@ -18,16 +18,6 @@ A web-based tool for sketching idealized waveforms for power electronics papers 
   - **PNG** — 3 倍分辨率，可直接用于论文和 PPT
   - **JSON** — 存档备份，可导入继续编辑
 
-## 二次开发
-
-欢迎 fork。本项目基于 Vite + React + TypeScript：
-
-```bash
-cd app && npm install && npm run dev
-```
-
-推送到自己仓库的 main 分支后，在 Settings → Pages 将 Source 设为 GitHub Actions 即可自动部署。
-
 ## License
 
 [MIT](LICENSE)
