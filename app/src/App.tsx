@@ -165,6 +165,17 @@ function App() {
   const [marquee, setMarquee] = useState<{ start: Point; end: Point } | null>(null);
   const marqueeAdditiveRef = React.useRef(false);
 
+  // Previous tool mode, restored when the pan toggle is switched off
+  const prevModeRef = React.useRef<ToolMode>('draw');
+  const togglePanMode = useCallback(() => {
+    if (mode === 'pan') {
+      setMode(prevModeRef.current);
+    } else {
+      prevModeRef.current = mode;
+      setMode('pan');
+    }
+  }, [mode, setMode]);
+
   // Canvas panning state (middle-button drag or Space+left drag)
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -787,7 +798,6 @@ function App() {
     edit: '先选组，再拖动端点/中点/控制点',
     delete: '点击线段删除',
     moveGroup: '拖动整组波形移动',
-    pan: '拖动平移画布（触屏单指拖动，双指捏合缩放）',
     select: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制',
     undo: '撤销上一步操作',
     redo: '恢复上一步操作',
@@ -826,7 +836,6 @@ function App() {
             <ToolButton toolMode="edit" label="编辑" icon={Edit2} />
             <ToolButton toolMode="delete" label="删除" icon={Trash2} />
             <ToolButton toolMode="moveGroup" label="移组" icon={GripHorizontal} />
-            <ToolButton toolMode="pan" label="平移" icon={Hand} />
           </div>
           <div className="flex flex-wrap gap-2">
             <TooltipButton tooltip={TOOLTIPS.svg}>
@@ -879,6 +888,15 @@ function App() {
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>复位</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>适应内容</Button>
+                <Button
+                  variant={mode === 'pan' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-xs flex items-center gap-1"
+                  onClick={togglePanMode}
+                  title="拖动平移画布（触屏单指拖动，双指捏合缩放）"
+                >
+                  <Hand className="w-3.5 h-3.5" />平移
+                </Button>
                 <span className="hidden sm:inline text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
               </div>
 
