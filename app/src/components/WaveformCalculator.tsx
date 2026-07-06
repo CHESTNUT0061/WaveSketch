@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Trash2, Equal } from 'lucide-react';
 import type { WaveformGroup, CalcRpnToken } from '@/types/waveform';
+import { useI18n } from '@/i18n';
 
 interface WaveformCalculatorProps {
   groups: WaveformGroup[];
@@ -39,6 +40,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
   groups,
   onCalculate,
 }) => {
+  const { t } = useI18n();
   const [tokens, setTokens] = useState<Token[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [constInput, setConstInput] = useState('1');
@@ -55,19 +57,19 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
   const push = (t: Token) => { setTokens([...tokens, t]); setError(null); };
 
   const addGroup = (groupId: string, groupName: string) => {
-    if (!canAddValue) { setError('这里应该是运算符'); return; }
+    if (!canAddValue) { setError(t('errNeedOperator')); return; }
     push({ type: 'group', id: groupId, name: groupName });
   };
 
   const addConst = () => {
-    if (!canAddValue) { setError('这里应该是运算符'); return; }
+    if (!canAddValue) { setError(t('errNeedOperator')); return; }
     const v = parseFloat(constInput);
-    if (!Number.isFinite(v)) { setError('常数无效'); return; }
+    if (!Number.isFinite(v)) { setError(t('errBadConst')); return; }
     push({ type: 'const', value: v });
   };
 
   const addOp = (op: '+' | '-' | '×') => {
-    if (!canAddOp) { setError('请先放入波形或常数'); return; }
+    if (!canAddOp) { setError(t('errNeedValue')); return; }
     push({ type: 'op', value: op });
   };
 
@@ -113,11 +115,11 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
 
   const calculate = () => {
     if (!canCalculate) {
-      setError(!hasGroup ? '表达式需包含至少一个波形' : openParens > 0 ? '括号未闭合' : '表达式不完整');
+      setError(!hasGroup ? t('errNeedGroup') : openParens > 0 ? t('errUnclosed') : t('errIncomplete'));
       return;
     }
     const rpn = toRpn();
-    if (!rpn) { setError('表达式无效'); return; }
+    if (!rpn) { setError(t('errInvalid')); return; }
 
     const expression = tokens.map(tokenText).join(' ');
     onCalculate(expression, rpn);
@@ -127,12 +129,12 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
 
   return (
     <div className="mb-6">
-      <Label className="text-sm font-medium mb-2 block">波形计算器</Label>
+      <Label className="text-sm font-medium mb-2 block">{t('calcTitle')}</Label>
 
       {/* Expression display */}
       <div className="mb-3 p-2 bg-gray-100 rounded border">
         <div className="text-sm font-mono min-h-[24px] break-all">
-          {tokens.length > 0 ? tokens.map(tokenText).join(' ') : <span className="text-gray-400">点击按钮构建算式...</span>}
+          {tokens.length > 0 ? tokens.map(tokenText).join(' ') : <span className="text-gray-400">{t('calcPlaceholder')}</span>}
         </div>
         {error && (
           <div className="text-xs text-red-500 mt-1">{error}</div>
@@ -144,8 +146,8 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         <Button size="sm" variant="outline" onClick={() => addOp('+')} className="flex-1 text-base font-bold px-0" disabled={!canAddOp}>+</Button>
         <Button size="sm" variant="outline" onClick={() => addOp('-')} className="flex-1 text-base font-bold px-0" disabled={!canAddOp}>−</Button>
         <Button size="sm" variant="outline" onClick={() => addOp('×')} className="flex-1 text-base font-bold px-0" disabled={!canAddOp}>×</Button>
-        <Button size="sm" variant="outline" onClick={() => { if (canAddValue) push({ type: 'lparen' }); else setError('这里应该是运算符'); }} className="flex-1 text-base font-bold px-0" disabled={!canAddValue}>(</Button>
-        <Button size="sm" variant="outline" onClick={() => { if (canAddRparen) push({ type: 'rparen' }); else setError('没有可闭合的括号'); }} className="flex-1 text-base font-bold px-0" disabled={!canAddRparen}>)</Button>
+        <Button size="sm" variant="outline" onClick={() => { if (canAddValue) push({ type: 'lparen' }); else setError(t('errNeedOperator')); }} className="flex-1 text-base font-bold px-0" disabled={!canAddValue}>(</Button>
+        <Button size="sm" variant="outline" onClick={() => { if (canAddRparen) push({ type: 'rparen' }); else setError(t('errNoRparen')); }} className="flex-1 text-base font-bold px-0" disabled={!canAddRparen}>)</Button>
       </div>
 
       {/* Constant input and editing */}
@@ -156,22 +158,22 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
           value={constInput}
           onChange={(e) => setConstInput(e.target.value)}
           className="h-8 flex-1 text-sm"
-          placeholder="常数"
+          placeholder={t('constPlaceholder')}
         />
         <Button size="sm" variant="outline" onClick={addConst} disabled={!canAddValue} className="text-xs">
-          插入常数
+          {t('insertConst')}
         </Button>
-        <Button size="sm" variant="ghost" onClick={removeLastToken} className="px-2" disabled={tokens.length === 0} title="删除最后一项">
+        <Button size="sm" variant="ghost" onClick={removeLastToken} className="px-2" disabled={tokens.length === 0} title={t('titleRemoveLast')}>
           <Trash2 className="w-4 h-4" />
         </Button>
         <Button size="sm" variant="ghost" onClick={clearExpression} className="px-2" disabled={tokens.length === 0}>
-          清空
+          {t('clear')}
         </Button>
       </div>
 
       {/* Waveform buttons */}
       <div className="mb-3">
-        <Label className="text-xs text-gray-500 mb-1 block">选择波形</Label>
+        <Label className="text-xs text-gray-500 mb-1 block">{t('selectWaveform')}</Label>
         <div className="flex flex-wrap gap-1">
           {groups.map((group) => (
             <Button
@@ -196,14 +198,14 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
             </Button>
           ))}
           {groups.length === 0 && (
-            <span className="text-xs text-gray-400">暂无波形组</span>
+            <span className="text-xs text-gray-400">{t('noGroups')}</span>
           )}
         </div>
       </div>
 
       {/* Examples */}
       <div className="mb-3 text-xs text-gray-400">
-        示例：(A + B) × 0.5、A × 2 − 1、V × I（瞬时功率）
+        {t('calcExamples')}
       </div>
 
       {/* Calculate button */}
@@ -214,7 +216,7 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
         disabled={!canCalculate}
       >
         <Equal className="w-4 h-4" />
-        计算
+        {t('calculate')}
       </Button>
     </div>
   );

@@ -16,6 +16,7 @@ import {
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
 import type { WaveformGroup, LineSegment, CalcRpnToken } from '@/types/waveform';
+import { useI18n } from '@/i18n';
 
 // Color picker component
 interface ColorPickerProps {
@@ -31,6 +32,7 @@ const PRESET_COLORS = [
 ];
 
 const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCancel, position }) => {
+  const { t } = useI18n();
   const [customColor, setCustomColor] = useState(currentColor);
   const [rgb, setRgb] = useState(() => {
     const hex = currentColor.replace('#', '');
@@ -82,7 +84,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
     >
       {/* Preset colors */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 mb-2">预设颜色</div>
+        <div className="text-xs text-gray-500 mb-2">{t('presetColors')}</div>
         <div className="grid grid-cols-5 gap-1">
           {PRESET_COLORS.map((color) => (
             <button
@@ -100,7 +102,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
 
       {/* Custom color */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 mb-2">自定义颜色</div>
+        <div className="text-xs text-gray-500 mb-2">{t('customColor')}</div>
         <div className="flex items-center gap-2">
           <input
             type="color"
@@ -167,14 +169,14 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
             className="w-6 h-6 rounded-full border border-gray-300"
             style={{ backgroundColor: customColor }}
           />
-          <span className="text-xs text-gray-500">预览</span>
+          <span className="text-xs text-gray-500">{t('colorPreview')}</span>
         </div>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onCancel}>
-            取消
+            {t('cancel')}
           </Button>
           <Button size="sm" className="h-7 px-2 text-xs" onClick={() => onSelect(customColor)}>
-            确定
+            {t('confirm')}
           </Button>
         </div>
       </div>
@@ -237,6 +239,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isCopyPreview = false,
   clipboardSegments = [],
 }) => {
+  const { t } = useI18n();
   const [newGroupName, setNewGroupName] = useState('');
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -259,16 +262,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="w-full bg-gray-50 p-4 rounded-lg border border-gray-200 overflow-y-auto h-full">
       {/* Title */}
-      <h2 className="text-lg font-bold text-gray-800 mb-4">波形组管理</h2>
-      
+      <h2 className="text-lg font-bold text-gray-800 mb-4">{t('groupPanelTitle')}</h2>
+
       {/* Waveform group management */}
       <div className="mb-4">
-        <Label className="text-sm font-medium mb-2 block">波形组</Label>
+        <Label className="text-sm font-medium mb-2 block">{t('groupsLabel')}</Label>
         <div className="flex gap-2 mb-2">
           <Input
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
-            placeholder="新组名称"
+            placeholder={t('newGroupPlaceholder')}
             className="h-8 flex-1"
           />
           <Button size="sm" onClick={handleCreateGroup} className="px-2">
@@ -277,7 +280,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
         <div className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded p-2 bg-white mb-2">
           {groups.length === 0 && (
-            <div className="text-xs text-gray-400 text-center py-2">暂无波形组</div>
+            <div className="text-xs text-gray-400 text-center py-2">{t('noGroups')}</div>
           )}
           {groups.map((group) => (
             <div
@@ -329,7 +332,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       setEditingGroup(group.id);
                       setEditName(group.name);
                     }}
-                    title="双击重命名"
+                    title={t('titleRenameDbl')}
                   >
                     {group.name} ({group.segments.length})
                   </span>
@@ -356,7 +359,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       e.stopPropagation();
                       handleOpenColorPicker(group.id, e);
                     }}
-                    title="修改颜色"
+                    title={t('titleChangeColor')}
                   >
                     <div 
                       className="w-3 h-3 rounded-full border border-gray-300"
@@ -374,7 +377,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       setEditingGroup(group.id);
                       setEditName(group.name);
                     }}
-                    title="重命名"
+                    title={t('titleRename')}
                   >
                     <Edit2 className="w-3 h-3" />
                   </Button>
@@ -387,7 +390,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     e.stopPropagation();
                     onDuplicateGroup(group.id);
                   }}
-                  title="复制组"
+                  title={t('titleDuplicate')}
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
@@ -426,7 +429,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           className="w-full"
         >
           <Trash2 className="w-4 h-4 mr-1" />
-          清空所有
+          {t('clearAll')}
         </Button>
       </div>
 
@@ -437,12 +440,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {selectedSegments.size > 0 && !isCopyPreview && (
             <div className="p-3 bg-blue-50 rounded mb-2">
               <div className="text-sm font-medium mb-2 text-blue-800">
-                已选择 {selectedSegments.size} 条波形
+                {t('selectedN', { n: selectedSegments.size })}
               </div>
               <div className="text-xs text-blue-600 space-y-1">
-                <div>• 点击空白处取消选择</div>
-                <div>• Shift+点击 多选</div>
-                <div>• Ctrl+C 开始复制</div>
+                <div>{t('hintDeselect')}</div>
+                <div>{t('hintShiftSelect')}</div>
+                <div>{t('hintCtrlCStart')}</div>
               </div>
             </div>
           )}
@@ -451,8 +454,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {selectedSegments.size > 0 && clipboardSegments.length === 0 && !isCopyPreview && (
             <div className="p-3 bg-blue-50 rounded mb-2">
               <div className="text-xs text-blue-600 space-y-1">
-                <div>• Ctrl+C 复制线到剪贴板</div>
-                <div>• 点击空白处取消选择</div>
+                <div>{t('hintCtrlCClip')}</div>
+                <div>{t('hintDeselect')}</div>
               </div>
             </div>
           )}
@@ -461,11 +464,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {clipboardSegments.length > 0 && !isCopyPreview && (
             <div className="p-3 bg-indigo-50 rounded mb-2">
               <div className="text-sm font-medium mb-1 text-indigo-800">
-                已复制 {clipboardSegments.length} 条线
+                {t('copiedN', { n: clipboardSegments.length })}
               </div>
               <div className="text-xs text-indigo-600 space-y-1">
-                <div>• Ctrl+V 粘贴并预览</div>
-                <div>• 移动鼠标调整位置</div>
+                <div>{t('hintCtrlVPreview')}</div>
+                <div>{t('hintMoveMouse')}</div>
               </div>
             </div>
           )}
@@ -474,9 +477,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {selectedSegments.size === 0 && clipboardSegments.length === 0 && !isCopyPreview && (
             <div className="p-3 bg-gray-50 rounded mb-2">
               <div className="text-xs text-gray-500 space-y-1">
-                <div>• 点击线段选中</div>
-                <div>• Shift+点击 多选</div>
-                <div>• Ctrl+C 复制 / Ctrl+V 粘贴</div>
+                <div>{t('hintClickSelect')}</div>
+                <div>{t('hintShiftSelect')}</div>
+                <div>{t('hintCopyPaste')}</div>
               </div>
             </div>
           )}
@@ -485,12 +488,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {isCopyPreview && (
             <div className="p-3 bg-green-50 rounded border border-green-200">
               <div className="text-sm font-medium mb-2 text-green-800">
-                复制预览模式
+                {t('pastePreviewMode')}
               </div>
               <div className="text-xs text-green-600 space-y-1">
-                <div>• 移动鼠标调整位置</div>
-                <div>• 点击画布确认复制</div>
-                <div>• Enter 确认 / Esc 取消</div>
+                <div>{t('hintMoveMouse')}</div>
+                <div>{t('hintClickConfirm')}</div>
+                <div>{t('hintEnterEsc')}</div>
               </div>
             </div>
           )}
@@ -509,7 +512,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => setActiveTab('generator')}
           >
             <Wand2 className="w-4 h-4" />
-            波形生成
+            {t('tabGenerator')}
           </button>
           <button
             className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-1 ${
@@ -520,7 +523,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => setActiveTab('calculator')}
           >
             <Calculator className="w-4 h-4" />
-            波形计算
+            {t('tabCalculator')}
           </button>
         </div>
       </div>

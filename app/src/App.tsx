@@ -5,8 +5,9 @@ import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
+import { useI18n } from '@/i18n';
 
 // Site links
 const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
@@ -78,6 +79,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
 };
 
 function App() {
+  const { t, lang, setLang } = useI18n();
   const {
     segments,
     groups,
@@ -272,7 +274,7 @@ function App() {
         const data = JSON.parse(e.target?.result as string);
         importData(data);
       } catch (error) {
-        alert('导入失败：文件格式不正确');
+        alert(t('importError'));
       }
     };
     reader.readAsText(file);
@@ -794,17 +796,17 @@ function App() {
 
   // Tool button tooltips
   const TOOLTIPS: Record<string, string> = {
-    draw: '点击并拖动画直线，吸附格点',
-    edit: '先选组，再拖动端点/中点/控制点',
-    delete: '点击线段删除',
-    moveGroup: '拖动整组波形移动',
-    select: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制',
-    undo: '撤销上一步操作',
-    redo: '恢复上一步操作',
-    svg: '导出SVG图片，可在Visio中编辑',
-    png: '导出高分辨率PNG图片（3倍分辨率）',
-    import: '导入波形数据，继续上次编辑',
-    export: '导出波形数据，方便下次编辑',
+    draw: t('tipDraw'),
+    edit: t('tipEdit'),
+    delete: t('tipDelete'),
+    moveGroup: t('tipMoveGroup'),
+    select: t('tipSelect'),
+    undo: t('tipUndo'),
+    redo: t('tipRedo'),
+    svg: t('tipSvg'),
+    png: t('tipPng'),
+    import: t('tipImport'),
+    export: t('tipExport'),
   };
 
   const ToolButton = ({ toolMode, label, icon: Icon }: { toolMode: ToolMode; label: string; icon: React.ElementType }) => (
@@ -825,17 +827,29 @@ function App() {
 
     <div className="min-h-screen bg-gray-100 p-2 sm:p-4">
       <div className="w-full mx-auto max-w-[95%] lg:h-[92vh]">
-        {/* Title */}
-        <h1 className="text-xl font-bold text-gray-800 mb-3">波形绘制工具</h1>
+        {/* Title + language toggle */}
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-bold text-gray-800">WaveSketch</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+            className="flex items-center gap-1"
+            title={lang === 'zh' ? 'Switch to English' : '切换到中文'}
+          >
+            <Languages className="w-4 h-4" />
+            {lang === 'zh' ? 'EN' : '中文'}
+          </Button>
+        </div>
 
         {/* Toolbar: wraps on narrow screens */}
         <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
           <div className="flex flex-wrap gap-2">
-            <ToolButton toolMode="select" label="选择" icon={MousePointer2} />
-            <ToolButton toolMode="draw" label="绘制" icon={Pencil} />
-            <ToolButton toolMode="edit" label="编辑" icon={Edit2} />
-            <ToolButton toolMode="delete" label="删除" icon={Trash2} />
-            <ToolButton toolMode="moveGroup" label="移组" icon={GripHorizontal} />
+            <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} />
+            <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} />
+            <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} />
+            <ToolButton toolMode="delete" label={t('toolDelete')} icon={Trash2} />
+            <ToolButton toolMode="moveGroup" label={t('toolMoveGroup')} icon={GripHorizontal} />
           </div>
           <div className="flex flex-wrap gap-2">
             <TooltipButton tooltip={TOOLTIPS.svg}>
@@ -854,22 +868,22 @@ function App() {
             }} />
             <TooltipButton tooltip={TOOLTIPS.import}>
               <Button variant="outline" size="sm" onClick={() => document.getElementById('import-json')?.click()} className="flex items-center gap-1">
-                <Download className="w-4 h-4" />导入
+                <Download className="w-4 h-4" />{t('actionImport')}
               </Button>
             </TooltipButton>
             <TooltipButton tooltip={TOOLTIPS.export}>
               <Button variant="outline" size="sm" onClick={() => downloadJSON()} className="flex items-center gap-1">
-                <FileJson className="w-4 h-4" />导出
+                <FileJson className="w-4 h-4" />{t('actionExport')}
               </Button>
             </TooltipButton>
             <TooltipButton tooltip={TOOLTIPS.undo}>
               <Button variant="outline" size="sm" onClick={undo} disabled={!canUndo} className="flex items-center gap-1">
-                <Undo2 className="w-4 h-4" />撤销
+                <Undo2 className="w-4 h-4" />{t('actionUndo')}
               </Button>
             </TooltipButton>
             <TooltipButton tooltip={TOOLTIPS.redo}>
               <Button variant="outline" size="sm" onClick={redo} disabled={!canRedo} className="flex items-center gap-1">
-                <Redo2 className="w-4 h-4" />恢复
+                <Redo2 className="w-4 h-4" />{t('actionRedo')}
               </Button>
             </TooltipButton>
           </div>
@@ -886,34 +900,34 @@ function App() {
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.8)}>−</Button>
                 <span className="text-xs font-mono w-14 text-center">{Math.round((viewport.scale / BASE_SCALE) * 100)}%</span>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>复位</Button>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>适应内容</Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>{t('reset')}</Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>{t('fitContent')}</Button>
                 <Button
                   variant={mode === 'pan' ? 'default' : 'ghost'}
                   size="sm"
                   className="h-7 px-2 text-xs flex items-center gap-1"
                   onClick={togglePanMode}
-                  title="拖动平移画布（触屏单指拖动，双指捏合缩放）"
+                  title={t('tipPan')}
                 >
-                  <Hand className="w-3.5 h-3.5" />平移
+                  <Hand className="w-3.5 h-3.5" />{t('pan')}
                 </Button>
-                <span className="hidden sm:inline text-[10px] text-gray-400 pl-1 border-l">中键/空格+拖拽平移</span>
+                <span className="hidden sm:inline text-[10px] text-gray-400 pl-1 border-l">{t('panHint')}</span>
               </div>
 
               {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (
                 <div className="absolute top-3 right-3 z-10 bg-black/70 text-white px-3 py-2 rounded text-sm font-mono">
-                  <div>ΔX: {moveOffset.x >= 0 ? '+' : ''}{(moveOffset.x / axisConfig.xGridSize).toFixed(1)}格</div>
-                  <div>ΔY: {moveOffset.y >= 0 ? '+' : ''}{(moveOffset.y / axisConfig.yGridSize).toFixed(1)}格</div>
+                  <div>ΔX: {moveOffset.x >= 0 ? '+' : ''}{(moveOffset.x / axisConfig.xGridSize).toFixed(1)} {t('cells')}</div>
+                  <div>ΔY: {moveOffset.y >= 0 ? '+' : ''}{(moveOffset.y / axisConfig.yGridSize).toFixed(1)} {t('cells')}</div>
                 </div>
               )}
-              
+
               {/* Paste-preview offset readout (top-right of canvas) */}
               {isCopyPreview && selectCopyOffset && (
                 <div className="absolute top-3 right-3 z-10 bg-blue-600/90 text-white px-3 py-2 rounded text-sm font-mono shadow-lg">
-                  <div className="text-xs text-blue-200 mb-1">复制预览 (Enter确认/Esc取消)</div>
-                  <div>ΔX: {(selectCopyOffset.x / axisConfig.xGridSize).toFixed(0)}格 ({selectCopyOffset.x >= 0 ? '+' : ''}{selectCopyOffset.x.toFixed(2)})</div>
-                  <div>ΔY: {(selectCopyOffset.y / axisConfig.yGridSize).toFixed(0)}格 ({selectCopyOffset.y >= 0 ? '+' : ''}{selectCopyOffset.y.toFixed(2)})</div>
+                  <div className="text-xs text-blue-200 mb-1">{t('copyPreviewHint')}</div>
+                  <div>ΔX: {(selectCopyOffset.x / axisConfig.xGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.x >= 0 ? '+' : ''}{selectCopyOffset.x.toFixed(2)})</div>
+                  <div>ΔY: {(selectCopyOffset.y / axisConfig.yGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.y >= 0 ? '+' : ''}{selectCopyOffset.y.toFixed(2)})</div>
                 </div>
               )}
 
@@ -948,20 +962,20 @@ function App() {
 
             {/* Axis settings */}
             <div className="bg-white p-3 rounded-lg shadow">
-              <div className="text-sm font-medium mb-2 text-gray-700">坐标设置</div>
+              <div className="text-sm font-medium mb-2 text-gray-700">{t('axisSettings')}</div>
               <div className="flex flex-wrap items-center gap-y-2">
                 {/* Y axis (left) */}
                 <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">Y单位</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('yUnit')}</Label>
                     <Input value={axisConfig.yUnit} onChange={(e) => setAxisConfig({ ...axisConfig, yUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">次格点</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
                     <Input type="number" step="0.1" value={axisConfig.yGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yGridSize: parseFloat(e.target.value) || 0.5 })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">主格点</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
                     <Input type="number" step="0.5" value={axisConfig.yMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
                   </div>
                 </div>
@@ -970,15 +984,15 @@ function App() {
                 {/* X axis (right) */}
                 <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">X单位</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('xUnit')}</Label>
                     <Input value={axisConfig.xUnit} onChange={(e) => setAxisConfig({ ...axisConfig, xUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">次格点</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
                     <Input type="number" step="0.1" value={axisConfig.xGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, xGridSize: parseFloat(e.target.value) || 0.5 })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">主格点</Label>
+                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
                     <Input type="number" step="0.5" value={axisConfig.xMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, xMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
                   </div>
                 </div>
@@ -1014,24 +1028,24 @@ function App() {
           <div className="flex gap-2">
             {/* Busuanzi counter: hidden until the script loads */}
             <span id="busuanzi_container_site_pv" style={{ display: 'none' }}>
-              本工具已被使用 <span id="busuanzi_value_site_pv" /> 次
+              {t('visitCountPrefix')} <span id="busuanzi_value_site_pv" /> {t('visitCountSuffix')}
             </span>
             <span id="busuanzi_container_site_uv" style={{ display: 'none' }}>
-              · 访客 <span id="busuanzi_value_site_uv" /> 人
+              {t('visitorPrefix')} <span id="busuanzi_value_site_uv" /> {t('visitorSuffix')}
             </span>
           </div>
           <div className="flex flex-wrap gap-4">
             <a href={WPD_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-              推荐：曲线取点工具 WebPlotDigitizer
+              {t('linkWpd')}
             </a>
             {GITHUB_REPO_URL && (
               <a href={`${GITHUB_REPO_URL}/issues`} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-                意见反馈
+                {t('linkFeedback')}
               </a>
             )}
             {GITHUB_REPO_URL && (
               <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-                GitHub
+                {t('linkGithub')}
               </a>
             )}
           </div>

@@ -409,46 +409,43 @@ export function useWaveform() {
     setMoveStartPoint(null);
   }, [saveToHistory]);
 
-  // Move one endpoint of a segment
+  // Move one endpoint of a segment. Generated waveforms are chains of connected
+  // segments that share vertices, so we move every endpoint in the same group that
+  // coincides with the dragged one — otherwise the chain would tear at the seam.
   const moveSegmentEndpoint = useCallback((segmentId: string, point: 'start' | 'end', newPos: Point) => {
-    setSegments(prev => prev.map(s => {
-      if (s.id !== segmentId) return s;
-      
-      const oldStart = s.start;
-      const oldEnd = s.end;
-      const newStart = point === 'start' ? newPos : oldStart;
-      const newEnd = point === 'end' ? newPos : oldEnd;
-      
-      // Rescale the control point proportionally if present
-      let newControl = s.control;
-      if (s.control && s.type === 'curve') {
-        // Parameterize the control point relative to start/end (t value)
-        // For a quadratic Bezier the control point is a linear combination of the endpoints
-        const oldDx = oldEnd.x - oldStart.x;
-        const oldDy = oldEnd.y - oldStart.y;
+    setSegments(prev => {
+      const target = prev.find(s => s.id === segmentId);
+      if (!target) return prev;
+
+      const anchor = point === 'start' ? target.start : target.end;
+      const groupId = target.groupId;
+      const coincides = (p: Point) =>
+        Math.abs(p.x - anchor.x) < 1e-6 && Math.abs(p.y - anchor.y) < 1e-6;
+
+      // Rescale a curve's control point when its endpoints move
+      const rescaleControl = (s: LineSegment, newStart: Point, newEnd: Point): Point | undefined => {
+        if (!s.control || s.type !== 'curve') return s.control;
+        const oldDx = s.end.x - s.start.x;
+        const oldDy = s.end.y - s.start.y;
         const newDx = newEnd.x - newStart.x;
         const newDy = newEnd.y - newStart.y;
-        
-        if (Math.abs(oldDx) > 0.001 || Math.abs(oldDy) > 0.001) {
-          // Offset ratio of the control point from the start
-          const tX = oldDx !== 0 ? (s.control.x - oldStart.x) / oldDx : 0.5;
-          const tY = oldDy !== 0 ? (s.control.y - oldStart.y) / oldDy : 0.5;
-          
-          // Apply the ratio to the new endpoints
-          newControl = {
-            x: newStart.x + tX * newDx,
-            y: newStart.y + tY * newDy,
-          };
-        }
-      }
-      
-      return {
-        ...s,
-        start: newStart,
-        end: newEnd,
-        control: newControl,
+        if (Math.abs(oldDx) < 0.001 && Math.abs(oldDy) < 0.001) return s.control;
+        const tX = oldDx !== 0 ? (s.control.x - s.start.x) / oldDx : 0.5;
+        const tY = oldDy !== 0 ? (s.control.y - s.start.y) / oldDy : 0.5;
+        return { x: newStart.x + tX * newDx, y: newStart.y + tY * newDy };
       };
-    }));
+
+      return prev.map(s => {
+        // Only weld vertices within the same group (or ungrouped drags of a lone segment)
+        if (s.groupId !== groupId) return s;
+        const moveStart = coincides(s.start);
+        const moveEnd = coincides(s.end);
+        if (!moveStart && !moveEnd) return s;
+        const newStart = moveStart ? newPos : s.start;
+        const newEnd = moveEnd ? newPos : s.end;
+        return { ...s, start: newStart, end: newEnd, control: rescaleControl(s, newStart, newEnd) };
+      });
+    });
   }, []);
 
   // Toggle group visibility
