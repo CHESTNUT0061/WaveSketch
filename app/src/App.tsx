@@ -144,6 +144,7 @@ function App() {
     updateCopyPreviewOffset,
     confirmCopyPreview,
     cancelCopyPreview,
+    pasteClipboard,
     selectedSegments,
     calculateExpression,
     clearAll,
@@ -1019,6 +1020,10 @@ function App() {
               mode={mode}
               isCopyPreview={isCopyPreview}
               clipboardSegments={clipboardSegments}
+              onCopySelection={copyToClipboard}
+              onPasteClipboard={pasteClipboard}
+              onDeleteSelection={deleteSelectedSegments}
+              onDeselect={clearSegmentSelection}
             />
           </div>
         </div>

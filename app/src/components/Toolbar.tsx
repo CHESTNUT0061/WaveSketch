@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Trash2, 
+import {
+  Trash2,
   Plus,
   Eye,
   EyeOff,
@@ -11,7 +11,9 @@ import {
   Edit2,
   Check,
   Calculator,
-  Wand2
+  Wand2,
+  ClipboardPaste,
+  X
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
@@ -217,6 +219,10 @@ interface ToolbarProps {
   mode?: string;
   isCopyPreview?: boolean;
   clipboardSegments?: LineSegment[];
+  onCopySelection?: () => void;
+  onPasteClipboard?: () => void;
+  onDeleteSelection?: () => void;
+  onDeselect?: () => void;
 }
 
 type TabType = 'generator' | 'calculator';
@@ -238,6 +244,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   mode = 'draw',
   isCopyPreview = false,
   clipboardSegments = [],
+  onCopySelection,
+  onPasteClipboard,
+  onDeleteSelection,
+  onDeselect,
 }) => {
   const { t } = useI18n();
   const [newGroupName, setNewGroupName] = useState('');
@@ -436,6 +446,49 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Select mode - selection status and hints */}
       {mode === 'select' && (
         <div className="mb-4">
+          {/* Touch-friendly action buttons (copy / paste / delete work without a keyboard) */}
+          {!isCopyPreview && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 flex items-center justify-center gap-1"
+                onClick={onCopySelection}
+                disabled={selectedSegments.size === 0}
+              >
+                <Copy className="w-4 h-4" />{t('btnCopy')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 flex items-center justify-center gap-1"
+                onClick={onPasteClipboard}
+                disabled={clipboardSegments.length === 0}
+              >
+                <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 flex items-center justify-center gap-1 text-red-500"
+                onClick={onDeleteSelection}
+                disabled={selectedSegments.size === 0}
+              >
+                <Trash2 className="w-4 h-4" />{t('btnDelete')}
+              </Button>
+              {selectedSegments.size > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="flex items-center justify-center gap-1 text-gray-500"
+                  onClick={onDeselect}
+                >
+                  <X className="w-4 h-4" />{t('btnDeselect')}
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Selection status */}
           {selectedSegments.size > 0 && !isCopyPreview && (
             <div className="p-3 bg-blue-50 rounded mb-2">

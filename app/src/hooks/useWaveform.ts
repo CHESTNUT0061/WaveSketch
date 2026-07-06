@@ -751,6 +751,32 @@ export function useWaveform() {
     setCopyPreviewOrigin(null);
   }, []);
 
+  // Direct paste for touch devices (no keyboard): drop the clipboard segments
+  // offset by two grid cells and select them, so the user can finger-drag to reposition.
+  const pasteClipboard = useCallback(() => {
+    if (clipboardSegments.length === 0) return;
+    const dx = axisConfig.xGridSize * 2;
+    const dy = axisConfig.yGridSize * 2;
+
+    const newSegs: LineSegment[] = clipboardSegments.map(seg => ({
+      id: generateId(),
+      start: { x: seg.start.x + dx, y: seg.start.y + dy },
+      end: { x: seg.end.x + dx, y: seg.end.y + dy },
+      type: seg.type,
+      groupId: seg.groupId,
+      ...(seg.control ? { control: { x: seg.control.x + dx, y: seg.control.y + dy } } : {}),
+    }));
+
+    setSegments(prev => [...prev, ...newSegs]);
+    setGroups(prev => prev.map(g => {
+      const ids = newSegs.filter(s => s.groupId === g.id).map(s => s.id);
+      return ids.length ? { ...g, segments: [...g.segments, ...ids] } : g;
+    }));
+    // Select the pasted copies so they can be dragged into place
+    setSelectedSegments(new Set(newSegs.map(s => s.id)));
+    setTimeout(saveToHistory, 0);
+  }, [clipboardSegments, axisConfig.xGridSize, axisConfig.yGridSize, saveToHistory]);
+
   // Clear all
   const clearAll = useCallback(() => {
     setSegments([]);
@@ -1326,6 +1352,7 @@ export function useWaveform() {
     updateCopyPreviewOffset,
     confirmCopyPreview,
     cancelCopyPreview,
+    pasteClipboard,
     calculateExpression,
     clearAll,
     undo,

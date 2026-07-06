@@ -95,6 +95,11 @@ const S = {
   hintCtrlVPreview: { zh: '• Ctrl+V 粘贴并预览', en: '• Ctrl+V to paste and preview' },
   hintMoveMouse: { zh: '• 移动鼠标调整位置', en: '• Move the mouse to reposition' },
   pastePreviewMode: { zh: '复制预览模式', en: 'Paste preview' },
+  btnCopy: { zh: '复制', en: 'Copy' },
+  btnPaste: { zh: '粘贴', en: 'Paste' },
+  btnDelete: { zh: '删除', en: 'Delete' },
+  btnDeselect: { zh: '取消选择', en: 'Deselect' },
+  pasteHint: { zh: '粘贴后可拖动调整位置', en: 'Drag to reposition after pasting' },
   hintClickConfirm: { zh: '• 点击画布确认复制', en: '• Click the canvas to confirm' },
   hintEnterEsc: { zh: '• Enter 确认 / Esc 取消', en: '• Enter to confirm / Esc to cancel' },
 
