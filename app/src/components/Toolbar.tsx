@@ -11,9 +11,7 @@ import {
   Edit2,
   Check,
   Calculator,
-  Wand2,
-  ClipboardPaste,
-  X
+  Wand2
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
@@ -219,10 +217,6 @@ interface ToolbarProps {
   mode?: string;
   isCopyPreview?: boolean;
   clipboardSegments?: LineSegment[];
-  onCopySelection?: () => void;
-  onPasteClipboard?: () => void;
-  onDeleteSelection?: () => void;
-  onDeselect?: () => void;
 }
 
 type TabType = 'generator' | 'calculator';
@@ -244,10 +238,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   mode = 'draw',
   isCopyPreview = false,
   clipboardSegments = [],
-  onCopySelection,
-  onPasteClipboard,
-  onDeleteSelection,
-  onDeselect,
 }) => {
   const { t } = useI18n();
   const [newGroupName, setNewGroupName] = useState('');
@@ -443,108 +433,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </Button>
       </div>
 
-      {/* Select mode - selection status and hints */}
-      {mode === 'select' && (
+      {/* Select mode - concise status (copy/paste live in the top toolbar) */}
+      {mode === 'select' && (selectedSegments.size > 0 || clipboardSegments.length > 0 || isCopyPreview) && (
         <div className="mb-4">
-          {/* Touch-friendly action buttons (copy / paste / delete work without a keyboard) */}
-          {!isCopyPreview && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 flex items-center justify-center gap-1"
-                onClick={onCopySelection}
-                disabled={selectedSegments.size === 0}
-              >
-                <Copy className="w-4 h-4" />{t('btnCopy')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 flex items-center justify-center gap-1"
-                onClick={onPasteClipboard}
-                disabled={clipboardSegments.length === 0}
-              >
-                <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 flex items-center justify-center gap-1 text-red-500"
-                onClick={onDeleteSelection}
-                disabled={selectedSegments.size === 0}
-              >
-                <Trash2 className="w-4 h-4" />{t('btnDelete')}
-              </Button>
-              {selectedSegments.size > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="flex items-center justify-center gap-1 text-gray-500"
-                  onClick={onDeselect}
-                >
-                  <X className="w-4 h-4" />{t('btnDeselect')}
-                </Button>
-              )}
+          {/* Selection count */}
+          {selectedSegments.size > 0 && !isCopyPreview && (
+            <div className="p-2 bg-blue-50 rounded mb-2 text-sm font-medium text-blue-800">
+              {t('selectedN', { n: selectedSegments.size })}
             </div>
           )}
 
-          {/* Selection status */}
-          {selectedSegments.size > 0 && !isCopyPreview && (
-            <div className="p-3 bg-blue-50 rounded mb-2">
-              <div className="text-sm font-medium mb-2 text-blue-800">
-                {t('selectedN', { n: selectedSegments.size })}
-              </div>
-              <div className="text-xs text-blue-600 space-y-1">
-                <div>{t('hintDeselect')}</div>
-                <div>{t('hintShiftSelect')}</div>
-                <div>{t('hintCtrlCStart')}</div>
-              </div>
-            </div>
-          )}
-          
-          {/* Selected but not yet copied */}
-          {selectedSegments.size > 0 && clipboardSegments.length === 0 && !isCopyPreview && (
-            <div className="p-3 bg-blue-50 rounded mb-2">
-              <div className="text-xs text-blue-600 space-y-1">
-                <div>{t('hintCtrlCClip')}</div>
-                <div>{t('hintDeselect')}</div>
-              </div>
-            </div>
-          )}
-          
-          {/* Copied to clipboard, not yet pasted */}
+          {/* Clipboard status */}
           {clipboardSegments.length > 0 && !isCopyPreview && (
-            <div className="p-3 bg-indigo-50 rounded mb-2">
-              <div className="text-sm font-medium mb-1 text-indigo-800">
-                {t('copiedN', { n: clipboardSegments.length })}
-              </div>
-              <div className="text-xs text-indigo-600 space-y-1">
-                <div>{t('hintCtrlVPreview')}</div>
-                <div>{t('hintMoveMouse')}</div>
-              </div>
+            <div className="p-2 bg-indigo-50 rounded mb-2 text-sm font-medium text-indigo-800">
+              {t('copiedN', { n: clipboardSegments.length })}
             </div>
           )}
-          
-          {/* Hints when nothing is selected */}
-          {selectedSegments.size === 0 && clipboardSegments.length === 0 && !isCopyPreview && (
-            <div className="p-3 bg-gray-50 rounded mb-2">
-              <div className="text-xs text-gray-500 space-y-1">
-                <div>{t('hintClickSelect')}</div>
-                <div>{t('hintShiftSelect')}</div>
-                <div>{t('hintCopyPaste')}</div>
-              </div>
-            </div>
-          )}
-          
-          {/* Paste preview status */}
+
+          {/* Paste preview status (desktop Ctrl+V flow) */}
           {isCopyPreview && (
             <div className="p-3 bg-green-50 rounded border border-green-200">
               <div className="text-sm font-medium mb-2 text-green-800">
                 {t('pastePreviewMode')}
               </div>
               <div className="text-xs text-green-600 space-y-1">
-                <div>{t('hintMoveMouse')}</div>
                 <div>{t('hintClickConfirm')}</div>
                 <div>{t('hintEnterEsc')}</div>
               </div>

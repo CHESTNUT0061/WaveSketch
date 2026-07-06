@@ -5,7 +5,7 @@ import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages, Copy, ClipboardPaste } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 
@@ -851,6 +851,16 @@ function App() {
             <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} />
             <ToolButton toolMode="delete" label={t('toolDelete')} icon={Trash2} />
             <ToolButton toolMode="moveGroup" label={t('toolMoveGroup')} icon={GripHorizontal} />
+            <TooltipButton tooltip={t('tipCopy')}>
+              <Button variant="outline" size="sm" onClick={copyToClipboard} disabled={selectedSegments.size === 0} className="flex items-center gap-1">
+                <Copy className="w-4 h-4" />{t('btnCopy')}
+              </Button>
+            </TooltipButton>
+            <TooltipButton tooltip={t('tipPaste')}>
+              <Button variant="outline" size="sm" onClick={pasteClipboard} disabled={clipboardSegments.length === 0} className="flex items-center gap-1">
+                <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
+              </Button>
+            </TooltipButton>
           </div>
           <div className="flex flex-wrap gap-2">
             <TooltipButton tooltip={TOOLTIPS.svg}>
@@ -1020,10 +1030,6 @@ function App() {
               mode={mode}
               isCopyPreview={isCopyPreview}
               clipboardSegments={clipboardSegments}
-              onCopySelection={copyToClipboard}
-              onPasteClipboard={pasteClipboard}
-              onDeleteSelection={deleteSelectedSegments}
-              onDeselect={clearSegmentSelection}
             />
           </div>
         </div>

@@ -97,9 +97,8 @@ const S = {
   pastePreviewMode: { zh: '复制预览模式', en: 'Paste preview' },
   btnCopy: { zh: '复制', en: 'Copy' },
   btnPaste: { zh: '粘贴', en: 'Paste' },
-  btnDelete: { zh: '删除', en: 'Delete' },
-  btnDeselect: { zh: '取消选择', en: 'Deselect' },
-  pasteHint: { zh: '粘贴后可拖动调整位置', en: 'Drag to reposition after pasting' },
+  tipCopy: { zh: '复制选中的波形（先在选择模式下选中）', en: 'Copy the selected segments (select them in Select mode first)' },
+  tipPaste: { zh: '粘贴，副本偏移后可拖动调整位置', en: 'Paste; the copy is offset and can be dragged into place' },
   hintClickConfirm: { zh: '• 点击画布确认复制', en: '• Click the canvas to confirm' },
   hintEnterEsc: { zh: '• Enter 确认 / Esc 取消', en: '• Enter to confirm / Esc to cancel' },
 
