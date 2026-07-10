@@ -511,9 +511,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     if (onZoomChange && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       // deltaY > 0 scrolls down (zoom out), deltaY < 0 zooms in.
-      // Ctrl restricts the zoom to the X axis, Shift to the Y axis.
+      // Shift restricts the zoom to the X axis (Ctrl is left to the browser's page zoom).
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      const axis: ZoomAxis = e.ctrlKey ? 'x' : e.shiftKey ? 'y' : 'both';
+      const axis: ZoomAxis = e.shiftKey ? 'x' : 'both';
       onZoomChange(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top }, axis);
     }
 
