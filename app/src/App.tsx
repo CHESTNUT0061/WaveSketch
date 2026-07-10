@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages, Copy, ClipboardPaste } from 'lucide-react';
 import type { Point, ToolMode } from '@/types/waveform';
 import { useI18n } from '@/i18n';
+import { NumberInput } from '@/components/NumberInput';
 
 // Site links
 const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
@@ -983,11 +984,11 @@ function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
-                    <Input type="number" step="0.1" value={axisConfig.yGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yGridSize: parseFloat(e.target.value) || 0.5 })} className="h-7 w-14 text-sm px-2" />
+                    <NumberInput step="0.1" min={0.01} value={axisConfig.yGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, yGridSize: v })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
-                    <Input type="number" step="0.5" value={axisConfig.yMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, yMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
+                    <NumberInput step="0.5" min={0.01} value={axisConfig.yMajorGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, yMajorGridSize: v })} className="h-7 w-14 text-sm px-2" />
                   </div>
                 </div>
                 {/* Divider (desktop only) */}
@@ -1000,11 +1001,11 @@ function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
-                    <Input type="number" step="0.1" value={axisConfig.xGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, xGridSize: parseFloat(e.target.value) || 0.5 })} className="h-7 w-14 text-sm px-2" />
+                    <NumberInput step="0.1" min={0.01} value={axisConfig.xGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, xGridSize: v })} className="h-7 w-14 text-sm px-2" />
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
-                    <Input type="number" step="0.5" value={axisConfig.xMajorGridSize} onChange={(e) => setAxisConfig({ ...axisConfig, xMajorGridSize: parseFloat(e.target.value) || 2 })} className="h-7 w-14 text-sm px-2" />
+                    <NumberInput step="0.5" min={0.01} value={axisConfig.xMajorGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, xMajorGridSize: v })} className="h-7 w-14 text-sm px-2" />
                   </div>
                 </div>
               </div>

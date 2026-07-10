@@ -512,12 +512,13 @@ export function useWaveform() {
       sampleXs.push(uniqX[uniqX.length - 1]);
     }
 
-    // RPN evaluation
-    const evalAt = (x: number): number => {
+    // RPN evaluation. `side` selects the one-sided limit at discontinuities
+    // (square/trapezoid vertical edges are two points sharing one x).
+    const evalAt = (x: number, side: 'left' | 'right'): number => {
       const st: number[] = [];
       for (const tk of rpn) {
         if (tk.t === 'g') {
-          st.push(interpolateY(x, groupPointsMap.get(tk.id)!));
+          st.push(interpolateSide(x, groupPointsMap.get(tk.id)!, side));
         } else if (tk.t === 'c') {
           st.push(tk.v);
         } else {
@@ -529,7 +530,15 @@ export function useWaveform() {
       return st[0] ?? 0;
     };
 
-    const resultPoints = sampleXs.map(x => ({ x, y: evalAt(x) })).filter(p => Number.isFinite(p.y));
+    // At each sample x, evaluate both one-sided limits; when they differ the source
+    // has a vertical edge there, so emit two points to preserve the edge in the result.
+    const resultPoints: Point[] = [];
+    for (const x of sampleXs) {
+      const yL = evalAt(x, 'left');
+      const yR = evalAt(x, 'right');
+      if (Number.isFinite(yL)) resultPoints.push({ x, y: yL });
+      if (Number.isFinite(yR) && Math.abs(yR - yL) > 1e-9) resultPoints.push({ x, y: yR });
+    }
     if (resultPoints.length < 2) return;
 
     // Build the group and segments directly and commit once (a single history entry)
@@ -557,22 +566,41 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [groups, segments, getNextColor, saveToHistory]);
 
-  // Interpolate y at x (points must be sorted by x; returns 0 outside the range)
-  const interpolateY = (x: number, points: Point[]): number => {
-    for (let i = 0; i < points.length - 1; i++) {
-      if (x >= points[i].x && x <= points[i + 1].x) {
+  // One-sided interpolation at x (points sorted by x; returns 0 outside the range).
+  // At a vertical edge the data has a run of points sharing the same x; the 'left'
+  // limit is the first point of the run (pre-transition level, relying on stable
+  // sort keeping segment order) and 'right' is the last (post-transition level).
+  const interpolateSide = (x: number, points: Point[], side: 'left' | 'right'): number => {
+    const n = points.length;
+    if (n === 0) return 0;
+    const eps = 1e-9;
+
+    // Run of points whose x coincides with the query
+    let runStart = -1;
+    let runEnd = -1; // inclusive
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(points[i].x - x) <= eps) {
+        if (runStart === -1) runStart = i;
+        runEnd = i;
+      } else if (points[i].x > x + eps) {
+        break;
+      }
+    }
+    if (runStart !== -1) {
+      return side === 'left' ? points[runStart].y : points[runEnd].y;
+    }
+
+    // No exact point: plain linear interpolation between bracketing neighbors
+    for (let i = 0; i < n - 1; i++) {
+      if (x > points[i].x && x < points[i + 1].x) {
         const dx = points[i + 1].x - points[i].x;
-        // Vertical edge (square-wave switching) or duplicate points: a zero-width interval would divide by zero; take the later point's level
-        if (dx < 1e-12) {
-          if (Math.abs(x - points[i].x) < 1e-12) return points[i + 1].y;
-          continue;
-        }
+        if (dx < eps) continue;
         const t = (x - points[i].x) / dx;
         return points[i].y + t * (points[i + 1].y - points[i].y);
       }
     }
 
-    return points.find(p => Math.abs(p.x - x) < 1e-12)?.y || 0;
+    return 0; // outside the data range
   };
 
   // Toggle a segment's selection

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus } from 'lucide-react';
 import { useI18n, type StringKey } from '@/i18n';
+import { NumberInput } from '@/components/NumberInput';
 
 export type WaveformType = 'square' | 'ramp' | 'sine' | 'triangle' | 'sawtooth' | 'trapezoid' | 'rectified' | 'damped';
 
@@ -139,23 +139,11 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">{t('amplitude')}</Label>
-          <Input
-            type="number"
-            step="0.1"
-            value={amplitude}
-            onChange={(e) => setAmplitude(parseFloat(e.target.value) || 1)}
-            className="h-8"
-          />
+          <NumberInput step="0.1" value={amplitude} onValueChange={setAmplitude} className="h-8" />
         </div>
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">{t('period')}</Label>
-          <Input
-            type="number"
-            step="0.1"
-            value={period}
-            onChange={(e) => setPeriod(parseFloat(e.target.value) || 1)}
-            className="h-8"
-          />
+          <NumberInput step="0.1" min={0.001} value={period} onValueChange={setPeriod} className="h-8" />
         </div>
       </div>
 
@@ -163,36 +151,18 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">{t('totalCycles')}</Label>
-          <Input
-            type="number"
-            min="1"
-            value={totalCycles}
-            onChange={(e) => setTotalCycles(parseInt(e.target.value) || 1)}
-            className="h-8"
-          />
+          <NumberInput min={1} integer value={totalCycles} onValueChange={setTotalCycles} className="h-8" />
         </div>
         <div>
           <Label className="text-xs text-gray-600 mb-1 block">{t('startTime')}</Label>
-          <Input
-            type="number"
-            step="0.1"
-            value={startTime}
-            onChange={(e) => setStartTime(parseFloat(e.target.value) || 0)}
-            className="h-8"
-          />
+          <NumberInput step="0.1" value={startTime} onValueChange={setStartTime} className="h-8" />
         </div>
       </div>
 
       {/* DC offset (all waveform types) */}
       <div className="mb-2">
         <Label className="text-xs text-gray-600 mb-1 block">{t('dcOffset')}</Label>
-        <Input
-          type="number"
-          step="0.1"
-          value={offset}
-          onChange={(e) => setOffset(parseFloat(e.target.value) || 0)}
-          className="h-8"
-        />
+        <NumberInput step="0.1" value={offset} onValueChange={setOffset} className="h-8" />
       </div>
 
       {/* Duty cycle */}
@@ -201,14 +171,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
           <Label className="text-xs text-gray-600 mb-1 block">
             {t(DUTY_LABEL_KEYS[type]!)}
           </Label>
-          <Input
-            type="number"
-            min="0"
-            max="100"
-            value={dutyCycle}
-            onChange={(e) => setDutyCycle(parseFloat(e.target.value) || 50)}
-            className="h-8"
-          />
+          <NumberInput min={0} max={100} value={dutyCycle} onValueChange={setDutyCycle} className="h-8" />
           {type === 'ramp' && (
             <div className="text-xs text-gray-500 mt-1">
               {t('rampHint')}
@@ -226,15 +189,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       {type === 'trapezoid' && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">{t('edgePercent')}</Label>
-          <Input
-            type="number"
-            min="0.1"
-            max="40"
-            step="0.5"
-            value={edgePercent}
-            onChange={(e) => setEdgePercent(parseFloat(e.target.value) || 10)}
-            className="h-8"
-          />
+          <NumberInput min={0.1} max={40} step="0.5" value={edgePercent} onValueChange={setEdgePercent} className="h-8" />
           <div className="text-xs text-gray-500 mt-1">
             {t('edgeHint')}
           </div>
@@ -245,14 +200,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       {type === 'damped' && (
         <div className="mb-2">
           <Label className="text-xs text-gray-600 mb-1 block">{t('dampingTau')}</Label>
-          <Input
-            type="number"
-            min="0.1"
-            step="0.5"
-            value={dampingTau}
-            onChange={(e) => setDampingTau(parseFloat(e.target.value) || 2)}
-            className="h-8"
-          />
+          <NumberInput min={0.1} step="0.5" value={dampingTau} onValueChange={setDampingTau} className="h-8" />
           <div className="text-xs text-gray-500 mt-1">
             {t('dampingHint')}
           </div>
@@ -276,14 +224,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
           <div className="pl-6">
             <div className="mb-2">
               <Label className="text-xs text-gray-600 mb-1 block">{t('phaseCount')}</Label>
-              <Input
-                type="number"
-                min="2"
-                max="12"
-                value={phaseCount}
-                onChange={(e) => setPhaseCount(parseInt(e.target.value) || 2)}
-                className="h-8"
-              />
+              <NumberInput min={2} max={12} integer value={phaseCount} onValueChange={setPhaseCount} className="h-8" />
               <div className="text-xs text-gray-500 mt-1">
                 {t('phaseDiff', { n: (360 / phaseCount).toFixed(1) })}
               </div>
