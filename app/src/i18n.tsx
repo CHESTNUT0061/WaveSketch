@@ -40,7 +40,7 @@ const S = {
   fitContent: { zh: '适应内容', en: 'Fit' },
   pan: { zh: '平移', en: 'Pan' },
   tipPan: { zh: '拖动平移画布（触屏单指拖动，双指捏合缩放）', en: 'Drag to pan the canvas (one-finger drag on touch, two-finger pinch to zoom)' },
-  panHint: { zh: '中键/空格+拖拽平移', en: 'Middle-button / Space+drag to pan' },
+  panHint: { zh: '中键/空格拖拽平移 · Shift+滚轮缩放横轴', en: 'Middle/Space+drag to pan · Shift+wheel zooms the X axis' },
 
   // Offset readouts
   cells: { zh: '格', en: 'cells' },
@@ -76,12 +76,19 @@ const S = {
   titleChangeColor: { zh: '修改颜色', en: 'Change color' },
   titleDuplicate: { zh: '复制组', en: 'Duplicate group' },
 
-  // Color picker
+  // Group style panel
   presetColors: { zh: '预设颜色', en: 'Presets' },
   customColor: { zh: '自定义颜色', en: 'Custom' },
   colorPreview: { zh: '预览', en: 'Preview' },
   cancel: { zh: '取消', en: 'Cancel' },
   confirm: { zh: '确定', en: 'OK' },
+  lineWidth: { zh: '线宽', en: 'Width' },
+  lineStyleLabel: { zh: '线型', en: 'Style' },
+  lsSolid: { zh: '实线', en: 'Solid' },
+  lsDashed: { zh: '虚线', en: 'Dashed' },
+  lsDotted: { zh: '点线', en: 'Dotted' },
+  opacityLabel: { zh: '透明度', en: 'Opacity' },
+  titleGroupStyle: { zh: '组样式（颜色/线宽/线型/透明度）', en: 'Group style (color / width / dash / opacity)' },
 
   // Select-mode hints
   selectedN: { zh: '已选择 {n} 条波形', en: '{n} segment(s) selected' },
@@ -120,6 +127,13 @@ const S = {
   rampHint: { zh: '类似电感电流：上升沿占空比，下降沿为剩余时间', en: 'Like inductor current: duty sets the rise, the rest falls' },
   triangleHint: { zh: '50% 为对称三角波，100% 等效锯齿波', en: '50% = symmetric triangle, 100% ≈ sawtooth' },
   enablePhase: { zh: '启用错相功能', en: 'Enable phase interleaving' },
+  enableComplementary: { zh: '生成互补波形', en: 'Generate complementary signal' },
+  deadTimePercent: { zh: '死区占比 (%)', en: 'Dead time (% of period)' },
+  deadTimeHint: { zh: '每个开关沿两管同时为低的时间占周期百分比', en: 'Both signals stay low for this % of the period at each transition' },
+  compSuffix: { zh: '_互补', en: '_comp' },
+  multiPhaseTitle: { zh: '多相扩展已有组', en: 'Multi-phase extension of a group' },
+  multiPhaseHint: { zh: '按 周期/相数 平移生成副本，周期需自行指定', en: 'Creates copies shifted by period/phases; specify the period yourself' },
+  extendBtn: { zh: '生成多相副本', en: 'Create phase copies' },
   phaseCount: { zh: '相数', en: 'Phases' },
   phaseDiff: { zh: '相位差: {n}°', en: 'Phase step: {n}°' },
   generate: { zh: '生成波形', en: 'Generate' },
