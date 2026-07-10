@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, ZoomAxis } from '@/types/waveform';
+import { LINE_DASH } from '@/types/waveform';
 
 interface WaveformCanvasProps {
   segments: LineSegment[];
@@ -22,7 +23,7 @@ interface WaveformCanvasProps {
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseUp: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
-  onZoomChange?: (factor: number, screenPos?: Point) => void;
+  onZoomChange?: (factor: number, screenPos?: Point, axis?: ZoomAxis) => void;
   onPan?: (dxCss: number, dyCss: number) => void; // pan by a screen-pixel delta (two-finger gesture)
   panning?: 'ready' | 'active' | null; // ready = space held, active = dragging
   selectionRect?: { start: Point; end: Point } | null; // rubber-band rect in world coords
@@ -68,14 +69,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const yMinVis = bottomRight.y;
     const yMaxVis = topLeft.y;
 
-    // Pixels per world unit (used for density control)
-    const pxPerUnit = worldToScreen({ x: 1, y: 0 }, canvas).x - worldToScreen({ x: 0, y: 0 }, canvas).x;
+    // Pixels per world unit, per axis (used for density control)
+    const originPx = worldToScreen({ x: 0, y: 0 }, canvas);
+    const pxPerUnitX = worldToScreen({ x: 1, y: 0 }, canvas).x - originPx.x;
+    const pxPerUnitY = originPx.y - worldToScreen({ x: 0, y: 1 }, canvas).y;
 
     const isMajor = (v: number, major: number) =>
       Math.abs(v / major - Math.round(v / major)) < 1e-6;
 
     // Minor grid (light gray) - skipped when the spacing drops below 5px
-    if (axisConfig.xGridSize * pxPerUnit >= 5 && axisConfig.yGridSize * pxPerUnit >= 5) {
+    if (axisConfig.xGridSize * pxPerUnitX >= 5 && axisConfig.yGridSize * pxPerUnitY >= 5) {
       ctx.strokeStyle = '#e5e7eb';
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
@@ -104,7 +107,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // Major grid (dark gray) - skipped when the spacing drops below 12px
-    const showMajor = axisConfig.xMajorGridSize * pxPerUnit >= 12 && axisConfig.yMajorGridSize * pxPerUnit >= 12;
+    const showMajor = axisConfig.xMajorGridSize * pxPerUnitX >= 12 && axisConfig.yMajorGridSize * pxPerUnitY >= 12;
     if (showMajor) {
       ctx.strokeStyle = '#6b7280';
       ctx.lineWidth = 2;
@@ -149,7 +152,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // Tick labels (major grid) - pinned to the canvas edge when the axis is off-screen
-    if (showMajor && axisConfig.xMajorGridSize * pxPerUnit >= 30) {
+    if (showMajor && axisConfig.xMajorGridSize * pxPerUnitX >= 30) {
       const labelY = Math.min(Math.max(origin.y + 22, 16), cssH - 8);
       const labelXBase = Math.min(Math.max(origin.x - 12, 34), cssW - 6);
 
@@ -196,20 +199,25 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const start = worldToScreen(segment.start, canvas);
     const end = worldToScreen(segment.end, canvas);
     const color = group?.color || '#3b82f6';
-    
+    const baseWidth = group?.lineWidth ?? 2;
+    const dash = LINE_DASH[group?.lineStyle ?? 'solid'];
+    const opacity = group?.opacity ?? 1;
+
     // In delete mode the hovered segment turns red
     if (mode === 'delete' && segment.id === activeSegment) {
       ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 4;
+      ctx.lineWidth = baseWidth + 2;
     } else if (selectedSegs.has(segment.id)) {
       // Selected segments are highlighted
       ctx.strokeStyle = color;
-      ctx.lineWidth = 4;
+      ctx.lineWidth = baseWidth + 2;
     } else {
       ctx.strokeStyle = color;
-      ctx.lineWidth = segment.id === activeSegment ? 3 : 2;
+      ctx.lineWidth = segment.id === activeSegment ? baseWidth + 1 : baseWidth;
     }
-    
+    ctx.globalAlpha = opacity;
+    ctx.setLineDash(dash);
+
     if (segment.type === 'curve' && segment.control) {
       // Quadratic Bezier drawn directly (clipped by the canvas bounds)
       const control = worldToScreen(segment.control, canvas);
@@ -217,6 +225,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.moveTo(start.x, start.y);
       ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
       ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
 
       // Draw the control point (edit mode)
       if (mode === 'edit') {
@@ -241,8 +251,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
-    
+
     // Edit mode: endpoints/midpoints only for the selected group (drag the midpoint to create a curve)
     if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup) {
       // Endpoints
@@ -498,9 +510,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
     if (onZoomChange && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
-      // deltaY > 0 scrolls down (zoom out), deltaY < 0 zooms in
+      // deltaY > 0 scrolls down (zoom out), deltaY < 0 zooms in.
+      // Ctrl restricts the zoom to the X axis, Shift to the Y axis.
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      onZoomChange(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+      const axis: ZoomAxis = e.ctrlKey ? 'x' : e.shiftKey ? 'y' : 'both';
+      onZoomChange(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top }, axis);
     }
 
     return false;

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode } from '@/types/waveform';
+import { LINE_DASH } from '@/types/waveform';
 import type { WaveformType } from '@/components/WaveformGenerator';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
@@ -9,7 +10,9 @@ export const BASE_SCALE = 40;
 export const MIN_SCALE = BASE_SCALE * 0.1;  // 10%
 export const MAX_SCALE = BASE_SCALE * 10;   // 1000%
 
-const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scale: BASE_SCALE };
+const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scaleX: BASE_SCALE, scaleY: BASE_SCALE };
+
+const clampScale = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
 
 const DEFAULT_AXIS_CONFIG: AxisConfig = {
   xUnit: 't',
@@ -32,7 +35,19 @@ interface Draft {
   segments: LineSegment[];
   groups: WaveformGroup[];
   axisConfig?: Partial<AxisConfig>;
-  viewport?: Partial<Viewport>;
+  viewport?: Partial<Viewport> & { scale?: number }; // `scale` = legacy uniform-zoom field
+}
+
+// Normalize a stored viewport, migrating the legacy single `scale` field
+function normalizeViewport(v: (Partial<Viewport> & { scale?: number }) | undefined): Viewport {
+  if (!v) return DEFAULT_VIEWPORT;
+  const legacy = v.scale;
+  return {
+    centerX: v.centerX ?? 0,
+    centerY: v.centerY ?? 0,
+    scaleX: clampScale(v.scaleX ?? legacy ?? BASE_SCALE),
+    scaleY: clampScale(v.scaleY ?? legacy ?? BASE_SCALE),
+  };
 }
 
 function loadDraft(): Draft | null {
@@ -56,6 +71,119 @@ const COLORS = [
 interface HistoryState {
   segments: LineSegment[];
   groups: WaveformGroup[];
+}
+
+// Waveform generator parameters
+export interface GenerateParams {
+  amplitude: number;
+  period: number;
+  dutyCycle: number;
+  totalCycles: number;
+  startTime: number;
+  phaseShift: number;
+  offset?: number;          // DC offset (all waveform types)
+  edgePercent?: number;     // trapezoid: single-edge time as % of the period
+  dampingTau?: number;      // damped ringing: decay constant in periods
+  complementary?: boolean;  // square/trapezoid: also generate the complementary drive
+  deadTimePercent?: number; // dead band per switching transition, % of the period
+}
+
+// Build the key-point list for one waveform (pure function; DC offset applied)
+function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[] {
+  const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
+  const offset = params.offset ?? 0;
+  const phaseOffset = (phaseShift / 360) * period; // convert to a time offset
+  const points: Point[] = [];
+
+  if (type === 'square') {
+    // Square wave from key points (horizontal + vertical strokes)
+    const dutyTime = (dutyCycle / 100) * period;
+    const lowLevel = -amplitude;
+    const highLevel = amplitude;
+    for (let cycle = 0; cycle < totalCycles; cycle++) {
+      const cycleStart = startTime + cycle * period + phaseOffset;
+      points.push({ x: cycleStart, y: lowLevel });
+      points.push({ x: cycleStart, y: highLevel });
+      points.push({ x: cycleStart + dutyTime, y: highLevel });
+      points.push({ x: cycleStart + dutyTime, y: lowLevel });
+      points.push({ x: cycleStart + period, y: lowLevel });
+    }
+  } else if (type === 'ramp') {
+    // Ramp (inductor-current shape): rise + fall, duty cycle sets the rise time
+    const riseTime = (dutyCycle / 100) * period;
+    for (let cycle = 0; cycle < totalCycles; cycle++) {
+      const cycleStart = startTime + cycle * period + phaseOffset;
+      points.push({ x: cycleStart, y: 0 });
+      points.push({ x: cycleStart + riseTime, y: amplitude });
+      points.push({ x: cycleStart + period, y: 0 });
+    }
+  } else if (type === 'sine') {
+    const samplesPerPeriod = 20;
+    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
+    const dt = period / samplesPerPeriod;
+    const phaseRad = (phaseShift * Math.PI) / 180;
+    for (let i = 0; i <= totalSamples; i++) {
+      const t = startTime + i * dt;
+      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
+      points.push({ x: t, y: amplitude * Math.sin(normalizedT) });
+    }
+  } else if (type === 'triangle') {
+    // Triangle: duty cycle sets the peak position (50% = symmetric, PWM carrier)
+    const peakTime = (dutyCycle / 100) * period;
+    for (let cycle = 0; cycle < totalCycles; cycle++) {
+      const cycleStart = startTime + cycle * period + phaseOffset;
+      points.push({ x: cycleStart, y: -amplitude });
+      points.push({ x: cycleStart + peakTime, y: amplitude });
+    }
+    points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
+  } else if (type === 'sawtooth') {
+    // Sawtooth: linear rise over the full period, instant fall
+    for (let cycle = 0; cycle < totalCycles; cycle++) {
+      const cycleStart = startTime + cycle * period + phaseOffset;
+      points.push({ x: cycleStart, y: -amplitude });
+      points.push({ x: cycleStart + period, y: amplitude });
+      points.push({ x: cycleStart + period, y: -amplitude });
+    }
+  } else if (type === 'trapezoid') {
+    // Trapezoid: switching waveform with finite edges (switch-node voltage, gate drive)
+    const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
+    const edgeTime = edgeFrac * period;
+    // High time = duty time minus one edge time (duty measured at edge midpoints, approximately)
+    const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
+    for (let cycle = 0; cycle < totalCycles; cycle++) {
+      const cycleStart = startTime + cycle * period + phaseOffset;
+      points.push({ x: cycleStart, y: -amplitude });
+      points.push({ x: cycleStart + edgeTime, y: amplitude });
+      points.push({ x: cycleStart + edgeTime + highTime, y: amplitude });
+      points.push({ x: cycleStart + 2 * edgeTime + highTime, y: -amplitude });
+      points.push({ x: cycleStart + period, y: -amplitude });
+    }
+  } else if (type === 'rectified') {
+    // Rectified sine |A*sin| (rectifier output)
+    const samplesPerPeriod = 20;
+    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
+    const dt = period / samplesPerPeriod;
+    const phaseRad = (phaseShift * Math.PI) / 180;
+    for (let i = 0; i <= totalSamples; i++) {
+      const t = startTime + i * dt;
+      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
+      points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
+    }
+  } else if (type === 'damped') {
+    // Damped ringing A*e^(-t/(tau*T))*sin(2*pi*t/T) (switch-node ringing, LC resonance)
+    const tau = Math.max(0.1, params.dampingTau ?? 2) * period;
+    const samplesPerPeriod = 40;
+    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
+    const dt = period / samplesPerPeriod;
+    const phaseRad = (phaseShift * Math.PI) / 180;
+    for (let i = 0; i <= totalSamples; i++) {
+      const t = i * dt;
+      const y = amplitude * Math.exp(-t / tau) * Math.sin((t / period) * 2 * Math.PI + phaseRad);
+      points.push({ x: startTime + t, y });
+    }
+  }
+
+  return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
 }
 
 export function useWaveform() {
@@ -88,16 +216,8 @@ export function useWaveform() {
   const [axisConfig, setAxisConfig] = useState<AxisConfig>(() =>
     draft?.axisConfig ? { ...DEFAULT_AXIS_CONFIG, ...draft.axisConfig } : DEFAULT_AXIS_CONFIG
   );
-  // Infinite-canvas viewport (pan center + scale)
-  const [viewport, setViewport] = useState<Viewport>(() =>
-    draft?.viewport
-      ? {
-          centerX: draft.viewport.centerX ?? 0,
-          centerY: draft.viewport.centerY ?? 0,
-          scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, draft.viewport.scale || BASE_SCALE)),
-        }
-      : DEFAULT_VIEWPORT
-  );
+  // Infinite-canvas viewport (pan center + per-axis scale)
+  const [viewport, setViewport] = useState<Viewport>(() => normalizeViewport(draft?.viewport));
 
   // Autosave the draft to localStorage (500ms debounce)
   useEffect(() => {
@@ -110,7 +230,7 @@ export function useWaveform() {
     }, 500);
     return () => clearTimeout(timer);
   }, [segments, groups, axisConfig, viewport]);
-  const [mode, setMode] = useState<ToolMode>('draw');
+  const [mode, setMode] = useState<ToolMode>('select'); // select is the default tool
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -182,16 +302,16 @@ export function useWaveform() {
   // Uses clientWidth/Height because the canvas backing store is scaled by devicePixelRatio.
   const worldToScreen = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
     return {
-      x: canvas.clientWidth / 2 + (point.x - viewport.centerX) * viewport.scale,
-      y: canvas.clientHeight / 2 - (point.y - viewport.centerY) * viewport.scale,
+      x: canvas.clientWidth / 2 + (point.x - viewport.centerX) * viewport.scaleX,
+      y: canvas.clientHeight / 2 - (point.y - viewport.centerY) * viewport.scaleY,
     };
   }, [viewport]);
 
   // Screen (CSS pixels) -> world
   const screenToWorld = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
     return {
-      x: viewport.centerX + (point.x - canvas.clientWidth / 2) / viewport.scale,
-      y: viewport.centerY - (point.y - canvas.clientHeight / 2) / viewport.scale,
+      x: viewport.centerX + (point.x - canvas.clientWidth / 2) / viewport.scaleX,
+      y: viewport.centerY - (point.y - canvas.clientHeight / 2) / viewport.scaleY,
     };
   }, [viewport]);
 
@@ -311,8 +431,15 @@ export function useWaveform() {
 
   // Change a group's color
   const changeGroupColor = useCallback((groupId: string, color: string) => {
-    setGroups(prev => prev.map(g => 
+    setGroups(prev => prev.map(g =>
       g.id === groupId ? { ...g, color } : g
+    ));
+  }, []);
+
+  // Change a group's rendering style (color / line width / dash style / opacity)
+  const changeGroupStyle = useCallback((groupId: string, style: Partial<Pick<WaveformGroup, 'color' | 'lineWidth' | 'lineStyle' | 'opacity'>>) => {
+    setGroups(prev => prev.map(g =>
+      g.id === groupId ? { ...g, ...style } : g
     ));
   }, []);
 
@@ -447,6 +574,53 @@ export function useWaveform() {
       });
     });
   }, []);
+
+  // Multi-phase extension: create phaseCount-1 time-shifted copies of a group.
+  // The period is user-supplied because a hand-drawn waveform has no known period;
+  // phase k is shifted by k * period / phaseCount.
+  const extendGroupMultiPhase = useCallback((groupId: string, phaseCount: number, period: number) => {
+    const group = groups.find(g => g.id === groupId);
+    if (!group || phaseCount < 2 || period <= 0) return;
+    const srcSegs = segments.filter(s => group.segments.includes(s.id));
+    if (srcSegs.length === 0) return;
+
+    const newGroups: WaveformGroup[] = [];
+    const allNewSegs: LineSegment[] = [];
+    const usedColors = new Set(groups.map(g => g.color));
+
+    for (let k = 1; k < phaseCount; k++) {
+      const shift = (k * period) / phaseCount;
+      const gid = generateId();
+      const color = COLORS.find(c => !usedColors.has(c)) || COLORS[(groups.length + k) % COLORS.length];
+      usedColors.add(color);
+
+      const segs: LineSegment[] = srcSegs.map(s => ({
+        id: generateId(),
+        start: { x: s.start.x + shift, y: s.start.y },
+        end: { x: s.end.x + shift, y: s.end.y },
+        type: s.type,
+        groupId: gid,
+        ...(s.control ? { control: { x: s.control.x + shift, y: s.control.y } } : {}),
+      }));
+
+      newGroups.push({
+        id: gid,
+        name: `${group.name}_${k + 1}(${((k * 360) / phaseCount).toFixed(1)}°)`,
+        color,
+        visible: true,
+        segments: segs.map(s => s.id),
+        // Inherit the source group's rendering style
+        lineWidth: group.lineWidth,
+        lineStyle: group.lineStyle,
+        opacity: group.opacity,
+      });
+      allNewSegs.push(...segs);
+    }
+
+    setSegments(prev => [...prev, ...allNewSegs]);
+    setGroups(prev => [...prev, ...newGroups]);
+    setTimeout(saveToHistory, 0);
+  }, [groups, segments, saveToHistory]);
 
   // Toggle group visibility
   const toggleGroupVisibility = useCallback((groupId: string) => {
@@ -731,30 +905,32 @@ export function useWaveform() {
     setCopyOffset({ x: snapDeltaX, y: snapDeltaY });
   }, [copyPreviewOrigin, axisConfig.xGridSize, axisConfig.yGridSize]);
 
-  // Confirm the paste preview - materialize the preview segments
+  // Confirm the paste preview - materialize the preview segments.
+  // When a group is selected, the copies are pasted into that group.
   const confirmCopyPreview = useCallback(() => {
     if (copyingSegments.length === 0) return;
-    
+
     const newSegmentIds: string[] = [];
-    
+
     copyingSegments.forEach(segment => {
+      const targetGroupId = selectedGroup ?? segment.groupId;
       const newSegment: LineSegment = {
         id: generateId(),
         start: { x: segment.start.x + copyPreviewOffset.x, y: segment.start.y + copyPreviewOffset.y },
         end: { x: segment.end.x + copyPreviewOffset.x, y: segment.end.y + copyPreviewOffset.y },
         type: segment.type,
-        groupId: segment.groupId,
+        groupId: targetGroupId,
       };
       if (segment.control) {
         newSegment.control = { x: segment.control.x + copyPreviewOffset.x, y: segment.control.y + copyPreviewOffset.y };
       }
-      
+
       setSegments(prev => [...prev, newSegment]);
       newSegmentIds.push(newSegment.id);
-      
+
       // Update the group's segment list
-      setGroups(prev => prev.map(g => 
-        g.id === segment.groupId 
+      setGroups(prev => prev.map(g =>
+        g.id === targetGroupId
           ? { ...g, segments: [...g.segments, newSegment.id] }
           : g
       ));
@@ -768,7 +944,7 @@ export function useWaveform() {
     setCopyPreviewOrigin(null);
     setSelectedSegments(new Set());
     setTimeout(saveToHistory, 0);
-  }, [copyingSegments, copyPreviewOffset, saveToHistory]);
+  }, [copyingSegments, copyPreviewOffset, selectedGroup, saveToHistory]);
 
   // Cancel the paste preview
   const cancelCopyPreview = useCallback(() => {
@@ -781,6 +957,7 @@ export function useWaveform() {
 
   // Direct paste for touch devices (no keyboard): drop the clipboard segments
   // offset by two grid cells and select them, so the user can finger-drag to reposition.
+  // When a group is selected, the copies are pasted into that group.
   const pasteClipboard = useCallback(() => {
     if (clipboardSegments.length === 0) return;
     const dx = axisConfig.xGridSize * 2;
@@ -791,7 +968,7 @@ export function useWaveform() {
       start: { x: seg.start.x + dx, y: seg.start.y + dy },
       end: { x: seg.end.x + dx, y: seg.end.y + dy },
       type: seg.type,
-      groupId: seg.groupId,
+      groupId: selectedGroup ?? seg.groupId,
       ...(seg.control ? { control: { x: seg.control.x + dx, y: seg.control.y + dy } } : {}),
     }));
 
@@ -803,7 +980,7 @@ export function useWaveform() {
     // Select the pasted copies so they can be dragged into place
     setSelectedSegments(new Set(newSegs.map(s => s.id)));
     setTimeout(saveToHistory, 0);
-  }, [clipboardSegments, axisConfig.xGridSize, axisConfig.yGridSize, saveToHistory]);
+  }, [clipboardSegments, axisConfig.xGridSize, axisConfig.yGridSize, selectedGroup, saveToHistory]);
 
   // Clear all
   const clearAll = useCallback(() => {
@@ -991,9 +1168,16 @@ export function useWaveform() {
       const groupSegments = segments.filter(s => s.groupId === group.id);
       if (groupSegments.length === 0) return;
 
+      // Per-group style: width, dash pattern, opacity
+      const width = group.lineWidth ?? 2;
+      const dash = LINE_DASH[group.lineStyle ?? 'solid'];
+      const dashAttr = dash.length ? ` stroke-dasharray="${dash.join(',')}"` : '';
+      const opacity = group.opacity ?? 1;
+      const opacityAttr = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
+
       svg += `    <g id="wave-group-${gi + 1}">\n      <title>${escapeXml(group.name)}</title>\n`;
       groupSegments.forEach(segment => {
-        svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="2" fill="none"/>\n`;
+        svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
       });
       svg += `    </g>\n`;
     });
@@ -1093,7 +1277,7 @@ export function useWaveform() {
   const importData = useCallback((data: {
     version?: string;
     axisConfig?: Partial<AxisConfig>;
-    viewport?: Partial<Viewport>;
+    viewport?: Partial<Viewport> & { scale?: number };
     groups?: WaveformGroup[];
     segments?: LineSegment[];
   }) => {
@@ -1110,14 +1294,10 @@ export function useWaveform() {
       });
     }
 
-    // Restore the viewport (2.0+ only; older files keep the current one)
+    // Restore the viewport (2.0+ only; older files keep the current one).
+    // normalizeViewport migrates the legacy uniform `scale` field.
     if (data.viewport) {
-      const v = data.viewport;
-      setViewport({
-        centerX: v.centerX ?? 0,
-        centerY: v.centerY ?? 0,
-        scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, v.scale || BASE_SCALE)),
-      });
+      setViewport(normalizeViewport(data.viewport));
     }
     
     // Import groups and segments
@@ -1133,186 +1313,77 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [saveToHistory]);
 
-  // Generate common waveforms
+  // Generate common waveforms.
+  // For square/trapezoid, params.complementary additionally creates the complementary
+  // drive signal: it is high while the primary is low, shrunk by deadTimePercent of
+  // the period on each switching transition (both signals low during the dead band).
   const generateWaveform = useCallback((
     type: WaveformType,
-    params: {
-      amplitude: number;
-      period: number;
-      dutyCycle: number;
-      totalCycles: number;
-      startTime: number;
-      phaseShift: number;
-      offset?: number;      // DC offset (all waveform types)
-      edgePercent?: number; // trapezoid: single-edge time as % of the period
-      dampingTau?: number;  // damped ringing: decay constant in periods
-    },
+    params: GenerateParams,
     groupName: string,
     customColor?: string,
-    skipHistorySave?: boolean
+    skipHistorySave?: boolean,
+    complementaryName?: string
   ) => {
-    const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
-    const offset = params.offset ?? 0;
-    const phaseOffset = (phaseShift / 360) * period; // convert to a time offset
-    
-    // Create the new group
-    const newGroupId = generateId();
-    const newGroup: WaveformGroup = {
-      id: newGroupId,
-      name: groupName,
-      color: customColor || getNextColor(),
-      visible: true,
-      segments: [],
+    const points = buildWaveformPoints(type, params);
+    if (points.length < 2) return;
+
+    // Connect points into segments for one group (skipping zero-length ones)
+    const toSegments = (pts: Point[], gid: string): LineSegment[] => {
+      const segs: LineSegment[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const start = pts[i];
+        const end = pts[i + 1];
+        if (start.x === end.x && start.y === end.y) continue;
+        segs.push({ id: generateId(), start, end, type: 'line', groupId: gid });
+      }
+      return segs;
     };
-    
-    const newSegments: LineSegment[] = [];
-    const newSegmentIds: string[] = [];
-    
-    // Generate key points, then connect them with segments
-    const points: Point[] = [];
-    
-    if (type === 'square') {
-      // Square wave from key points (horizontal + vertical strokes)
-      // Each cycle: low start -> rising edge -> high -> falling edge -> low
-      const dutyTime = (dutyCycle / 100) * period;
-      const lowLevel = -amplitude;
-      const highLevel = amplitude;
-      
-      for (let cycle = 0; cycle < totalCycles; cycle++) {
-        const cycleStart = startTime + cycle * period + phaseOffset;
-        
-        // Cycle start (low)
-        points.push({ x: cycleStart, y: lowLevel });
-        // Rising edge start (low)
-        points.push({ x: cycleStart, y: lowLevel });
-        // Rising edge end (high)
-        points.push({ x: cycleStart, y: highLevel });
-        // High level end
-        points.push({ x: cycleStart + dutyTime, y: highLevel });
-        // Falling edge end (low)
-        points.push({ x: cycleStart + dutyTime, y: lowLevel });
-        // Cycle end (low)
-        points.push({ x: cycleStart + period, y: lowLevel });
-      }
-    } else if (type === 'ramp') {
-      // Ramp (inductor-current shape): rise + fall
-      // duty cycle sets the rise time
-      const riseTime = (dutyCycle / 100) * period;
-      const lowLevel = 0; // starts from 0
-      const highLevel = amplitude;
-      
-      for (let cycle = 0; cycle < totalCycles; cycle++) {
-        const cycleStart = startTime + cycle * period + phaseOffset;
-        
-        // Cycle start (low)
-        points.push({ x: cycleStart, y: lowLevel });
-        // Rise end (peak)
-        points.push({ x: cycleStart + riseTime, y: highLevel });
-        // Fall end (back to low)
-        points.push({ x: cycleStart + period, y: lowLevel });
-      }
-    } else if (type === 'sine') {
-      // Sine: connected sample points
-      const samplesPerPeriod = 20;
-      const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-      const dt = period / samplesPerPeriod;
-      const phaseRad = (phaseShift * Math.PI) / 180;
 
-      for (let i = 0; i <= totalSamples; i++) {
-        const t = startTime + i * dt;
-        const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
-        const y = amplitude * Math.sin(normalizedT);
-        points.push({ x: t, y });
-      }
-    } else if (type === 'triangle') {
-      // Triangle: duty cycle sets the peak position (50% = symmetric, PWM carrier)
-      const peakTime = (dutyCycle / 100) * period;
-      for (let cycle = 0; cycle < totalCycles; cycle++) {
-        const cycleStart = startTime + cycle * period + phaseOffset;
-        points.push({ x: cycleStart, y: -amplitude });
-        points.push({ x: cycleStart + peakTime, y: amplitude });
-      }
-      points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
-    } else if (type === 'sawtooth') {
-      // Sawtooth: linear rise over the full period, instant fall (PWM carrier / slope compensation)
-      for (let cycle = 0; cycle < totalCycles; cycle++) {
-        const cycleStart = startTime + cycle * period + phaseOffset;
-        points.push({ x: cycleStart, y: -amplitude });
-        points.push({ x: cycleStart + period, y: amplitude });
-        points.push({ x: cycleStart + period, y: -amplitude });
-      }
-    } else if (type === 'trapezoid') {
-      // Trapezoid: switching waveform with finite edges (switch-node voltage, gate drive)
-      const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
-      const edgeTime = edgeFrac * period;
-      // High time = duty time minus one edge time (duty measured at edge midpoints, approximately)
-      const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
-      const lowLevel = -amplitude;
-      const highLevel = amplitude;
+    const primaryId = generateId();
+    const primaryColor = customColor || getNextColor();
+    const primarySegs = toSegments(points, primaryId);
+    const newGroups: WaveformGroup[] = [{
+      id: primaryId,
+      name: groupName,
+      color: primaryColor,
+      visible: true,
+      segments: primarySegs.map(s => s.id),
+    }];
+    let allSegs = primarySegs;
 
-      for (let cycle = 0; cycle < totalCycles; cycle++) {
-        const cycleStart = startTime + cycle * period + phaseOffset;
-        points.push({ x: cycleStart, y: lowLevel });
-        points.push({ x: cycleStart + edgeTime, y: highLevel });
-        points.push({ x: cycleStart + edgeTime + highTime, y: highLevel });
-        points.push({ x: cycleStart + 2 * edgeTime + highTime, y: lowLevel });
-        points.push({ x: cycleStart + period, y: lowLevel });
-      }
-    } else if (type === 'rectified') {
-      // Rectified sine |A*sin| (rectifier output)
-      const samplesPerPeriod = 20;
-      const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-      const dt = period / samplesPerPeriod;
-      const phaseRad = (phaseShift * Math.PI) / 180;
-
-      for (let i = 0; i <= totalSamples; i++) {
-        const t = startTime + i * dt;
-        const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
-        points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
-      }
-    } else if (type === 'damped') {
-      // Damped ringing A*e^(-t/(tau*T))*sin(2*pi*t/T) (switch-node ringing, LC resonance)
-      const tau = Math.max(0.1, params.dampingTau ?? 2) * period; // time constant
-      const samplesPerPeriod = 40;
-      const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-      const dt = period / samplesPerPeriod;
-      const phaseRad = (phaseShift * Math.PI) / 180;
-
-      for (let i = 0; i <= totalSamples; i++) {
-        const t = i * dt;
-        const y = amplitude * Math.exp(-t / tau) * Math.sin((t / period) * 2 * Math.PI + phaseRad);
-        points.push({ x: startTime + t, y });
-      }
-    }
-
-    // DC offset
-    const shifted = offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
-
-    // Connect the points into segments (skipping zero-length ones)
-    for (let i = 0; i < shifted.length - 1; i++) {
-      const start = shifted[i];
-      const end = shifted[i + 1];
-      if (start.x === end.x && start.y === end.y) continue;
-      const newSegment: LineSegment = {
-        id: generateId(),
-        start,
-        end,
-        type: 'line',
-        groupId: newGroupId,
+    // Complementary signal (square/trapezoid only)
+    if (params.complementary && (type === 'square' || type === 'trapezoid') && complementaryName) {
+      const dt = Math.max(0, params.deadTimePercent ?? 5);
+      const compDuty = Math.max(0, 100 - params.dutyCycle - 2 * dt);
+      const compParams: GenerateParams = {
+        ...params,
+        dutyCycle: compDuty,
+        startTime: params.startTime + ((params.dutyCycle + dt) / 100) * params.period,
       };
-      newSegments.push(newSegment);
-      newSegmentIds.push(newSegment.id);
+      const compPoints = buildWaveformPoints(type, compParams);
+      const compId = generateId();
+      // Pick a color distinct from both existing groups and the primary
+      const used = new Set([...groups.map(g => g.color), primaryColor]);
+      const compColor = COLORS.find(c => !used.has(c)) || COLORS[(groups.length + 1) % COLORS.length];
+      const compSegs = toSegments(compPoints, compId);
+      newGroups.push({
+        id: compId,
+        name: complementaryName,
+        color: compColor,
+        visible: true,
+        segments: compSegs.map(s => s.id),
+      });
+      allSegs = [...allSegs, ...compSegs];
     }
-    
-    newGroup.segments = newSegmentIds;
-    
-    setSegments(prev => [...prev, ...newSegments]);
-    setGroups(prev => [...prev, newGroup]);
-    setSelectedGroup(newGroupId);
+
+    setSegments(prev => [...prev, ...allSegs]);
+    setGroups(prev => [...prev, ...newGroups]);
+    setSelectedGroup(primaryId);
     if (!skipHistorySave) {
       setTimeout(saveToHistory, 0);
     }
-  }, [saveToHistory, getNextColor]);
+  }, [saveToHistory, getNextColor, groups]);
 
   return {
     segments,
@@ -1364,6 +1435,7 @@ export function useWaveform() {
     deleteGroup,
     renameGroup,
     changeGroupColor,
+    changeGroupStyle,
     duplicateGroup,
     moveGroup,
     finishMoveGroup,
@@ -1390,5 +1462,6 @@ export function useWaveform() {
     downloadJSON,
     importData,
     generateWaveform,
+    extendGroupMultiPhase,
   };
 }

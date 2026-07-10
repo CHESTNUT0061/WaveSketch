@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages, Copy, ClipboardPaste } from 'lucide-react';
-import type { Point, ToolMode } from '@/types/waveform';
+import type { Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
 
@@ -126,7 +126,7 @@ function App() {
     createGroup,
     deleteGroup,
     renameGroup,
-    changeGroupColor,
+    changeGroupStyle,
     duplicateGroup,
     moveGroup,
     finishMoveGroup,
@@ -156,6 +156,7 @@ function App() {
     downloadJSON,
     importData,
     generateWaveform,
+    extendGroupMultiPhase,
     worldToScreen,
   } = useWaveform();
 
@@ -226,8 +227,14 @@ function App() {
   // Offset readout for select mode (top-right of canvas)
   const [selectCopyOffset, setSelectCopyOffset] = useState<{ x: number; y: number } | null>(null);
 
-  // Keyboard shortcuts (Ctrl+C copy to clipboard, Ctrl+V start paste preview)
+  // Keyboard shortcuts: Ctrl+C/V copy & paste, Ctrl+Z/Y undo & redo,
+  // Delete removes the selection, Escape backs out of the current action.
   React.useEffect(() => {
+    const isTyping = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+C / Cmd+C: copy selected segments to the clipboard
       if ((e.ctrlKey || e.metaKey) && e.key === 'c' && mode === 'select' && selectedSegments.size > 0) {
@@ -241,24 +248,49 @@ function App() {
         const originPoint = currentMouse || { x: 0, y: 0 };
         enterCopyPreview(originPoint);
       }
+      // Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo (not while typing in an input)
+      if ((e.ctrlKey || e.metaKey) && !isTyping(e)) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+        } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          redo();
+        }
+      }
       // Enter confirms the paste
       if (e.key === 'Enter' && isCopyPreview) {
         e.preventDefault();
         confirmCopyPreview();
         setSelectCopyOffset(null);
       }
-      // Escape Cancel the paste preview
-      if (e.key === 'Escape' && isCopyPreview) {
-        e.preventDefault();
-        cancelCopyPreview();
-        setSelectCopyOffset(null);
+      // Escape backs out one level at a time:
+      // paste preview -> in-progress draw -> rubber-band -> back to select mode -> clear selection
+      if (e.key === 'Escape') {
+        if (isCopyPreview) {
+          e.preventDefault();
+          cancelCopyPreview();
+          setSelectCopyOffset(null);
+        } else if (isDrawing) {
+          e.preventDefault();
+          setIsDrawing(false);
+          setDrawStart(null);
+          setCurrentMouse(null);
+        } else if (marquee) {
+          e.preventDefault();
+          setMarquee(null);
+        } else if (mode !== 'select') {
+          e.preventDefault();
+          setMode('select');
+        } else if (selectedSegments.size > 0) {
+          e.preventDefault();
+          clearSegmentSelection();
+        }
       }
       // Delete/Backspace removes selected segments (ignored while an input has focus)
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSegments.size > 0 && !isCopyPreview) {
-        const target = e.target as HTMLElement;
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) {
-          return;
-        }
+        if (isTyping(e)) return;
         e.preventDefault();
         deleteSelectedSegments();
       }
@@ -266,7 +298,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mode, selectedSegments.size, isCopyPreview, currentMouse, clipboardSegments.length, copyToClipboard, enterCopyPreview, confirmCopyPreview, cancelCopyPreview, deleteSelectedSegments]);
+  }, [mode, selectedSegments.size, isCopyPreview, currentMouse, clipboardSegments.length, copyToClipboard, enterCopyPreview, confirmCopyPreview, cancelCopyPreview, deleteSelectedSegments, undo, redo, isDrawing, marquee, setIsDrawing, setDrawStart, setCurrentMouse, setMode, clearSegmentSelection]);
 
   // Import a JSON file
   const handleImportJSON = useCallback((file: File) => {
@@ -282,24 +314,29 @@ function App() {
     reader.readAsText(file);
   }, [importData]);
 
-  // Zoom handler: factor is the multiplier; when screenPos (canvas coords) is given, zoom around that point
-  const handleZoom = useCallback((factor: number, screenPos?: Point) => {
+  // Zoom handler: factor is the multiplier; when screenPos (canvas coords) is given,
+  // zoom around that point. `axis` restricts the zoom to one axis
+  // (Ctrl+wheel = X only, Shift+wheel = Y only).
+  const handleZoom = useCallback((factor: number, screenPos?: Point, axis: ZoomAxis = 'both') => {
     const canvas = canvasRef.current;
     setViewport(prev => {
-      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * factor));
-      if (newScale === prev.scale) return prev;
+      const clamp = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
+      const newScaleX = axis === 'y' ? prev.scaleX : clamp(prev.scaleX * factor);
+      const newScaleY = axis === 'x' ? prev.scaleY : clamp(prev.scaleY * factor);
+      if (newScaleX === prev.scaleX && newScaleY === prev.scaleY) return prev;
       if (!screenPos || !canvas) {
-        return { ...prev, scale: newScale };
+        return { ...prev, scaleX: newScaleX, scaleY: newScaleY };
       }
       // Keep the world point under the cursor fixed on screen
       const dx = screenPos.x - canvas.clientWidth / 2;
       const dy = screenPos.y - canvas.clientHeight / 2;
-      const worldX = prev.centerX + dx / prev.scale;
-      const worldY = prev.centerY - dy / prev.scale;
+      const worldX = prev.centerX + dx / prev.scaleX;
+      const worldY = prev.centerY - dy / prev.scaleY;
       return {
-        centerX: worldX - dx / newScale,
-        centerY: worldY + dy / newScale,
-        scale: newScale,
+        centerX: worldX - dx / newScaleX,
+        centerY: worldY + dy / newScaleY,
+        scaleX: newScaleX,
+        scaleY: newScaleY,
       };
     });
   }, [canvasRef, setViewport]);
@@ -308,14 +345,14 @@ function App() {
   const handleTouchPan = useCallback((dxCss: number, dyCss: number) => {
     setViewport(prev => ({
       ...prev,
-      centerX: prev.centerX - dxCss / prev.scale,
-      centerY: prev.centerY + dyCss / prev.scale,
+      centerX: prev.centerX - dxCss / prev.scaleX,
+      centerY: prev.centerY + dyCss / prev.scaleY,
     }));
   }, [setViewport]);
 
-  // Reset the viewport (origin, 100% zoom)
+  // Reset the viewport (origin, 100% uniform zoom)
   const resetViewport = useCallback(() => {
-    setViewport({ centerX: 0, centerY: 0, scale: BASE_SCALE });
+    setViewport({ centerX: 0, centerY: 0, scaleX: BASE_SCALE, scaleY: BASE_SCALE });
   }, [setViewport]);
 
   // Fit to content: zoom the viewport to enclose all visible waveforms (10% margin)
@@ -340,16 +377,13 @@ function App() {
 
     const xRange = Math.max(xMax - xMin, 0.5); // avoid division by zero for single points / flat lines
     const yRange = Math.max(yMax - yMin, 0.5);
-    const scale = Math.max(MIN_SCALE, Math.min(
-      MAX_SCALE,
-      canvas.clientWidth / (xRange * 1.2),
-      canvas.clientHeight / (yRange * 1.2)
-    ));
-
+    // Per-axis scales are independent now, so fit fills both dimensions
+    const clamp = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
     setViewport({
       centerX: (xMin + xMax) / 2,
       centerY: (yMin + yMax) / 2,
-      scale,
+      scaleX: clamp(canvas.clientWidth / (xRange * 1.2)),
+      scaleY: clamp(canvas.clientHeight / (yRange * 1.2)),
     });
   }, [segments, groups, canvasRef, setViewport]);
 
@@ -645,8 +679,8 @@ function App() {
       const dy = e.clientY - start.clientY;
       setViewport(prev => ({
         ...prev,
-        centerX: start.centerX - dx / prev.scale,
-        centerY: start.centerY + dy / prev.scale,
+        centerX: start.centerX - dx / prev.scaleX,
+        centerY: start.centerY + dy / prev.scaleY,
       }));
       return;
     }
@@ -727,8 +761,8 @@ function App() {
     }
     if (marquee) {
       // Rubber-band end: counts as a selection only if the rect exceeds a few pixels, otherwise it's a plain click
-      const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scale;
-      const pxH = Math.abs(marquee.end.y - marquee.start.y) * viewport.scale;
+      const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scaleX;
+      const pxH = Math.abs(marquee.end.y - marquee.start.y) * viewport.scaleY;
       if (pxW > 4 || pxH > 4) {
         selectSegmentsInRect(marquee.start, marquee.end, marqueeAdditiveRef.current);
       }
@@ -783,7 +817,7 @@ function App() {
       }
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scale, selectSegmentsInRect]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -910,7 +944,11 @@ function App() {
               {/* Zoom control (bottom-left) */}
               <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-white/90 rounded-lg px-2 py-1 shadow border">
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.8)}>−</Button>
-                <span className="text-xs font-mono w-14 text-center">{Math.round((viewport.scale / BASE_SCALE) * 100)}%</span>
+                <span className="text-xs font-mono min-w-14 text-center whitespace-nowrap">
+                  {Math.abs(viewport.scaleX - viewport.scaleY) < 1e-9
+                    ? `${Math.round((viewport.scaleX / BASE_SCALE) * 100)}%`
+                    : `X${Math.round((viewport.scaleX / BASE_SCALE) * 100)}% Y${Math.round((viewport.scaleY / BASE_SCALE) * 100)}%`}
+                </span>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>{t('reset')}</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>{t('fitContent')}</Button>
@@ -1025,9 +1063,10 @@ function App() {
               onClearAll={clearAll}
               onDuplicateGroup={duplicateGroup}
               onRenameGroup={renameGroup}
-              onChangeGroupColor={changeGroupColor}
+              onChangeGroupStyle={changeGroupStyle}
               selectedSegments={selectedSegments}
               onGenerateWaveform={generateWaveform}
+              onExtendMultiPhase={extendGroupMultiPhase}
               mode={mode}
               isCopyPreview={isCopyPreview}
               clipboardSegments={clipboardSegments}

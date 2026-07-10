@@ -15,13 +15,22 @@ import {
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType } from './WaveformGenerator';
-import type { WaveformGroup, LineSegment, CalcRpnToken } from '@/types/waveform';
+import { NumberInput } from './NumberInput';
+import type { WaveformGroup, LineSegment, CalcRpnToken, LineStyle } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 
-// Color picker component
+// Style payload applied from the group style panel
+export interface GroupStyle {
+  color: string;
+  lineWidth: number;
+  lineStyle: LineStyle;
+  opacity: number;
+}
+
+// Group style panel (color / line width / dash style / opacity)
 interface ColorPickerProps {
-  currentColor: string;
-  onSelect: (color: string) => void;
+  group: WaveformGroup;
+  onApply: (style: GroupStyle) => void;
   onCancel: () => void;
   position: { x: number; y: number };
 }
@@ -31,9 +40,13 @@ const PRESET_COLORS = [
   '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
 ];
 
-const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCancel, position }) => {
+const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel, position }) => {
   const { t } = useI18n();
+  const currentColor = group.color;
   const [customColor, setCustomColor] = useState(currentColor);
+  const [lineWidth, setLineWidth] = useState(group.lineWidth ?? 2);
+  const [lineStyle, setLineStyle] = useState<LineStyle>(group.lineStyle ?? 'solid');
+  const [opacityPct, setOpacityPct] = useState(Math.round((group.opacity ?? 1) * 100));
   const [rgb, setRgb] = useState(() => {
     const hex = currentColor.replace('#', '');
     return {
@@ -162,20 +175,64 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ currentColor, onSelect, onCan
         </div>
       </div>
 
+      {/* Line width + dash style */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs text-gray-500 whitespace-nowrap">{t('lineWidth')}</span>
+        <NumberInput min={0.5} max={8} step="0.5" value={lineWidth} onValueChange={setLineWidth} className="h-7 w-14 text-xs px-1" />
+        <div className="flex gap-1 flex-1">
+          {(['solid', 'dashed', 'dotted'] as LineStyle[]).map(ls => (
+            <Button
+              key={ls}
+              size="sm"
+              variant={lineStyle === ls ? 'default' : 'outline'}
+              className="h-7 px-1.5 text-[10px] flex-1"
+              onClick={() => setLineStyle(ls)}
+            >
+              {t(ls === 'solid' ? 'lsSolid' : ls === 'dashed' ? 'lsDashed' : 'lsDotted')}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Opacity */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs text-gray-500 whitespace-nowrap">{t('opacityLabel')}</span>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={5}
+          value={opacityPct}
+          onChange={(e) => setOpacityPct(parseInt(e.target.value))}
+          className="flex-1"
+        />
+        <span className="text-xs text-gray-500 w-9 text-right">{opacityPct}%</span>
+      </div>
+
       {/* Preview and actions */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div 
-            className="w-6 h-6 rounded-full border border-gray-300"
-            style={{ backgroundColor: customColor }}
-          />
+          {/* Live style preview: a short line sample */}
+          <svg width="48" height="16">
+            <line
+              x1="2" y1="8" x2="46" y2="8"
+              stroke={customColor}
+              strokeWidth={lineWidth}
+              strokeOpacity={opacityPct / 100}
+              strokeDasharray={lineStyle === 'dashed' ? '8,5' : lineStyle === 'dotted' ? '2,4' : undefined}
+            />
+          </svg>
           <span className="text-xs text-gray-500">{t('colorPreview')}</span>
         </div>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onCancel}>
             {t('cancel')}
           </Button>
-          <Button size="sm" className="h-7 px-2 text-xs" onClick={() => onSelect(customColor)}>
+          <Button
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onApply({ color: customColor, lineWidth, lineStyle, opacity: opacityPct / 100 })}
+          >
             {t('confirm')}
           </Button>
         </div>
@@ -195,7 +252,7 @@ interface ToolbarProps {
   onClearAll: () => void;
   onDuplicateGroup: (groupId: string) => void;
   onRenameGroup: (groupId: string, newName: string) => void;
-  onChangeGroupColor: (groupId: string, color: string) => void;
+  onChangeGroupStyle: (groupId: string, style: GroupStyle) => void;
   selectedSegments: Set<string>;
   onGenerateWaveform: (
     type: WaveformType,
@@ -211,8 +268,11 @@ interface ToolbarProps {
       dampingTau?: number;
     },
     groupName: string,
-    customColor?: string
+    customColor?: string,
+    skipHistorySave?: boolean,
+    complementaryName?: string
   ) => void;
+  onExtendMultiPhase: (groupId: string, phaseCount: number, period: number) => void;
   // Select-mode props
   mode?: string;
   isCopyPreview?: boolean;
@@ -232,9 +292,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onClearAll,
   onDuplicateGroup,
   onRenameGroup,
-  onChangeGroupColor,
+  onChangeGroupStyle,
   selectedSegments,
   onGenerateWaveform,
+  onExtendMultiPhase,
   mode = 'draw',
   isCopyPreview = false,
   clipboardSegments = [],
@@ -341,10 +402,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <div className="flex gap-1 items-center">
                 {/* Color picker */}
                 {colorPickerGroup === group.id ? (
-                  <ColorPicker 
-                    currentColor={group.color}
-                    onSelect={(color) => {
-                      onChangeGroupColor(group.id, color);
+                  <ColorPicker
+                    group={group}
+                    onApply={(style) => {
+                      onChangeGroupStyle(group.id, style);
                       setColorPickerGroup(null);
                     }}
                     onCancel={() => setColorPickerGroup(null)}
@@ -359,7 +420,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       e.stopPropagation();
                       handleOpenColorPicker(group.id, e);
                     }}
-                    title={t('titleChangeColor')}
+                    title={t('titleGroupStyle')}
                   >
                     <div 
                       className="w-3 h-3 rounded-full border border-gray-300"
@@ -496,7 +557,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Tab content */}
       <div className="mb-4">
         {activeTab === 'generator' && (
-          <WaveformGenerator onGenerate={onGenerateWaveform} />
+          <WaveformGenerator onGenerate={onGenerateWaveform} groups={groups} onExtendMultiPhase={onExtendMultiPhase} />
         )}
         {activeTab === 'calculator' && (
           <WaveformCalculator groups={groups} onCalculate={onCalculateWaveforms} />
