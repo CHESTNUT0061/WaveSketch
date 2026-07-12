@@ -688,11 +688,20 @@ export function useWaveform() {
 
     // RPN evaluation. `side` selects the one-sided limit at discontinuities
     // (square/trapezoid vertical edges are two points sharing one x).
+    const globalStartX = uniqX[0];
+    const globalEndX = uniqX[uniqX.length - 1];
+
     const evalAt = (x: number, side: 'left' | 'right'): number => {
       const st: number[] = [];
       for (const tk of rpn) {
         if (tk.t === 'g') {
-          st.push(interpolateSide(x, groupPointsMap.get(tk.id)!, side));
+          // A waveform is zero outside its own finite point range. Preserve the
+          // original shape at the overall calculation boundary, but expose the
+          // zero-valued side when another waveform starts/ends inside the range.
+          const preserveBoundary = side === 'left'
+            ? Math.abs(x - globalStartX) <= 1e-9
+            : Math.abs(x - globalEndX) <= 1e-9;
+          st.push(interpolateSide(x, groupPointsMap.get(tk.id)!, side, preserveBoundary));
         } else if (tk.t === 'c') {
           st.push(tk.v);
         } else {
@@ -741,10 +750,16 @@ export function useWaveform() {
   }, [groups, segments, getNextColor, saveToHistory]);
 
   // One-sided interpolation at x (points sorted by x; returns 0 outside the range).
-  // At a vertical edge the data has a run of points sharing the same x; the 'left'
-  // limit is the first point of the run (pre-transition level, relying on stable
-  // sort keeping segment order) and 'right' is the last (post-transition level).
-  const interpolateSide = (x: number, points: Point[], side: 'left' | 'right'): number => {
+  // At an internal start/end boundary, the outside side must remain zero. Treating
+  // the endpoint value as that side would make a non-zero curve + 0 interpolate
+  // into a ramp. `preserveBoundary` is used only for the outermost calculation
+  // boundary, where retaining the original finite waveform shape is preferable.
+  function interpolateSide(
+    x: number,
+    points: Point[],
+    side: 'left' | 'right',
+    preserveBoundary = false,
+  ): number {
     const n = points.length;
     if (n === 0) return 0;
     const eps = 1e-9;
@@ -761,6 +776,11 @@ export function useWaveform() {
       }
     }
     if (runStart !== -1) {
+      const atStart = Math.abs(x - points[0].x) <= eps;
+      const atEnd = Math.abs(x - points[n - 1].x) <= eps;
+      if (!preserveBoundary && ((atStart && side === 'left') || (atEnd && side === 'right'))) {
+        return 0;
+      }
       return side === 'left' ? points[runStart].y : points[runEnd].y;
     }
 
@@ -775,7 +795,7 @@ export function useWaveform() {
     }
 
     return 0; // outside the data range
-  };
+  }
 
   // Toggle a segment's selection
   const toggleSegmentSelection = useCallback((segmentId: string, isMultiSelect: boolean) => {
