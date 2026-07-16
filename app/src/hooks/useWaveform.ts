@@ -186,6 +186,19 @@ function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[
   return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
 }
 
+function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Point[] {
+  const samples = Math.max(80, Math.ceil(sine.totalCycles * samplesPerPeriod));
+  const totalTime = sine.period * sine.totalCycles;
+  const phase = sine.phaseShift * Math.PI / 180;
+  return Array.from({ length: samples + 1 }, (_, index) => {
+    const elapsed = totalTime * index / samples;
+    return {
+      x: sine.startTime + elapsed,
+      y: sine.offset + sine.amplitude * Math.sin(2 * Math.PI * elapsed / sine.period + phase),
+    };
+  });
+}
+
 interface TemplateTrace {
   name: string;
   color: string;
@@ -556,7 +569,7 @@ export function useWaveform() {
     if (!group) return;
     
     const groupSegments = segments.filter(s => group.segments.includes(s.id));
-    if (groupSegments.length === 0) return;
+    if (groupSegments.length === 0 && !group.parametric) return;
     
     // Create the new group
     const newGroupId = generateId();
@@ -566,6 +579,7 @@ export function useWaveform() {
       color: COLORS[groups.length % COLORS.length],
       visible: true,
       segments: [],
+      ...(group.parametric ? { parametric: { ...group.parametric, startTime: group.parametric.startTime + axisConfig.xGridSize * 2 } } : {}),
     };
     
     // Copy segments (shifted right by two grid units)
@@ -611,6 +625,12 @@ export function useWaveform() {
         control: s.control ? { x: s.control.x + snapDeltaX, y: s.control.y + snapDeltaY } : undefined,
       };
     }));
+    if (group.parametric?.kind === 'sine') {
+      setGroups(prev => prev.map(item => item.id === groupId
+        ? { ...item, parametric: { ...item.parametric!, startTime: item.parametric!.startTime + snapDeltaX, offset: item.parametric!.offset + snapDeltaY } }
+        : item
+      ));
+    }
   }, [groups, axisConfig.xGridSize, axisConfig.yGridSize]);
 
   // Finish moving a group (saves history)
@@ -724,7 +744,9 @@ export function useWaveform() {
         const group = groups.find(g => g.id === tk.id);
         if (!group) return; // a referenced group was deleted; abort
 
-        const points: Point[] = [];
+        const points: Point[] = group.parametric?.kind === 'sine'
+          ? sampleParametricSine(group.parametric)
+          : [];
         segments.filter(s => group.segments.includes(s.id)).forEach(s => {
           points.push(s.start, s.end);
           if (s.control) points.push(s.control);
@@ -1100,14 +1122,15 @@ export function useWaveform() {
   const buildSVG = useCallback((): { svg: string; width: number; height: number } => {
     const padding = 60;
 
-    // Bounding box of the visible segments
+    // Bounding box of the visible segments and parametric waveforms
     const visibleSegments = segments.filter(s => {
       const g = groups.find(g => g.id === s.groupId);
       return !g || g.visible;
     });
+    const visibleParametric = groups.filter(group => group.visible && group.parametric?.kind === 'sine');
 
     let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // default range when there are no waveforms
-    if (visibleSegments.length > 0) {
+    if (visibleSegments.length > 0 || visibleParametric.length > 0) {
       xMin = Infinity; xMax = -Infinity; yMin = Infinity; yMax = -Infinity;
       visibleSegments.forEach(s => {
         const pts = s.control ? [s.start, s.end, s.control] : [s.start, s.end];
@@ -1115,6 +1138,13 @@ export function useWaveform() {
           xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x);
           yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
         });
+      });
+      visibleParametric.forEach(group => {
+        const sine = group.parametric!;
+        xMin = Math.min(xMin, sine.startTime);
+        xMax = Math.max(xMax, sine.startTime + sine.period * sine.totalCycles);
+        yMin = Math.min(yMin, sine.offset - Math.abs(sine.amplitude));
+        yMax = Math.max(yMax, sine.offset + Math.abs(sine.amplitude));
       });
       // Align outward to the major grid with one extra cell of padding
       xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
@@ -1149,6 +1179,11 @@ export function useWaveform() {
       }
       return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} L ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
     };
+    const generateParametricPath = (sine: ParametricSine): string =>
+      sampleParametricSine(sine).map((point, index) => {
+        const svgPoint = worldToSVG(point);
+        return `${index === 0 ? 'M' : 'L'} ${svgPoint.x.toFixed(2)} ${svgPoint.y.toFixed(2)}`;
+      }).join(' ');
 
 
 
@@ -1270,7 +1305,7 @@ export function useWaveform() {
     groups.forEach((group, gi) => {
       if (!group.visible) return;
       const groupSegments = segments.filter(s => s.groupId === group.id);
-      if (groupSegments.length === 0) return;
+      if (groupSegments.length === 0 && !group.parametric) return;
 
       // Per-group style: width, dash pattern, opacity
       const width = group.lineWidth ?? 2;
@@ -1280,9 +1315,13 @@ export function useWaveform() {
       const opacityAttr = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
 
       svg += `    <g id="wave-group-${gi + 1}">\n      <title>${escapeXml(group.name)}</title>\n`;
-      groupSegments.forEach(segment => {
-        svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
-      });
+      if (group.parametric?.kind === 'sine' && groupSegments.length === 0) {
+        svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+      } else {
+        groupSegments.forEach(segment => {
+          svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+        });
+      }
       svg += `    </g>\n`;
     });
 
@@ -1446,7 +1485,9 @@ export function useWaveform() {
 
     const primaryId = generateId();
     const primaryColor = customColor || getNextColor();
-    const primarySegs = toSegments(points, primaryId);
+    // A sine is stored as one parametric object. It has no backing line segments:
+    // Canvas and SVG render it analytically, so editing never explodes into points.
+    const primarySegs = type === 'sine' ? [] : toSegments(points, primaryId);
     const parametric: ParametricSine | undefined = type === 'sine' ? {
       kind: 'sine',
       amplitude: params.amplitude,
@@ -1499,7 +1540,7 @@ export function useWaveform() {
     }
   }, [saveToHistory, getNextColor, groups]);
 
-  const updateParametricSine = useCallback((groupId: string, next: ParametricSine) => {
+  const updateParametricSine = useCallback((groupId: string, next: ParametricSine, saveHistory = true) => {
     const group = groups.find(g => g.id === groupId);
     if (!group || group.parametric?.kind !== 'sine') return;
 
@@ -1512,14 +1553,6 @@ export function useWaveform() {
       phaseShift: next.phaseShift,
       offset: next.offset,
     };
-    const points = buildWaveformPoints('sine', params);
-    const replacement = points.slice(0, -1).map((start, index): LineSegment => ({
-      id: generateId(),
-      start,
-      end: points[index + 1],
-      type: 'line',
-      groupId,
-    }));
     const oldIds = new Set(group.segments);
     const normalized: ParametricSine = {
       ...next,
@@ -1527,12 +1560,12 @@ export function useWaveform() {
       totalCycles: params.totalCycles,
     };
 
-    setSegments(prev => [...prev.filter(segment => !oldIds.has(segment.id)), ...replacement]);
+    setSegments(prev => prev.filter(segment => !oldIds.has(segment.id)));
     setGroups(prev => prev.map(item => item.id === groupId
-      ? { ...item, segments: replacement.map(segment => segment.id), parametric: normalized }
+      ? { ...item, segments: [], parametric: normalized }
       : item
     ));
-    setTimeout(saveToHistory, 0);
+    if (saveHistory) setTimeout(saveToHistory, 0);
   }, [groups, saveToHistory]);
 
   // Create a vertically separated, time-aligned set of common DC/DC paper waveforms.

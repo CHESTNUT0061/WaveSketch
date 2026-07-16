@@ -6,13 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages, Copy, ClipboardPaste } from 'lucide-react';
-import type { Point, ToolMode, ZoomAxis } from '@/types/waveform';
+import type { ParametricSine, Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
 
 // Site links
 const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
 const WPD_URL = 'https://apps.automeris.io/wpd4/';
+
+type SineHandle = 'move' | 'amplitude' | 'period';
+
+function getSineHandles(sine: ParametricSine): { handle: SineHandle; point: Point }[] {
+  return [
+    { handle: 'move', point: { x: sine.startTime, y: sine.offset } },
+    { handle: 'amplitude', point: { x: sine.startTime + sine.period * (90 - sine.phaseShift) / 360, y: sine.offset + sine.amplitude } },
+    { handle: 'period', point: { x: sine.startTime + sine.period, y: sine.offset } },
+  ];
+}
 
 // Tooltip wrapper for buttons
 interface TooltipButtonProps {
@@ -165,6 +175,7 @@ function App() {
   // Drag state for edit mode
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ segmentId: string; point: 'start' | 'end' } | null>(null);
   const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // dragging a midpoint to create a curve
+  const [draggingSineHandle, setDraggingSineHandle] = useState<{ groupId: string; handle: SineHandle } | null>(null);
   // Whether this drag actually changed segments (decides if history is saved on mouse-up)
   const dragChangedRef = React.useRef(false);
 
@@ -366,7 +377,8 @@ function App() {
       const g = groups.find(g => g.id === s.groupId);
       return !g || g.visible;
     });
-    if (visibleSegments.length === 0) return;
+    const visibleParametric = groups.filter(group => group.visible && group.parametric?.kind === 'sine');
+    if (visibleSegments.length === 0 && visibleParametric.length === 0) return;
 
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     visibleSegments.forEach(s => {
@@ -375,6 +387,13 @@ function App() {
         xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x);
         yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
       });
+    });
+    visibleParametric.forEach(group => {
+      const sine = group.parametric!;
+      xMin = Math.min(xMin, sine.startTime);
+      xMax = Math.max(xMax, sine.startTime + sine.period * sine.totalCycles);
+      yMin = Math.min(yMin, sine.offset - Math.abs(sine.amplitude));
+      yMax = Math.max(yMax, sine.offset + Math.abs(sine.amplitude));
     });
 
     const xRange = Math.max(xMax - xMin, 0.5); // avoid division by zero for single points / flat lines
@@ -589,9 +608,20 @@ function App() {
         return;
       }
 
-      // Generated sine groups are edited through their compact parameter panel,
-      // so their sampled render segments never expose dozens of handles.
-      if (groups.find(group => group.id === selectedGroup)?.parametric?.kind === 'sine') {
+      const parametricSine = groups.find(group => group.id === selectedGroup)?.parametric;
+      if (parametricSine?.kind === 'sine') {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const click = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        const hit = getSineHandles(parametricSine).find(({ point }) => {
+          const screen = worldToScreen(point, canvas);
+          return Math.hypot(click.x - screen.x, click.y - screen.y) < 12;
+        });
+        if (hit) {
+          dragChangedRef.current = false;
+          setDraggingSineHandle({ groupId: selectedGroup, handle: hit.handle });
+        }
         return;
       }
       
@@ -677,7 +707,7 @@ function App() {
         setMarquee({ start: rawPos, end: rawPos });
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, groups, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, groups, worldToScreen, canvasRef, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Canvas panning in progress
@@ -699,6 +729,19 @@ function App() {
     
     if (isDrawing && drawStart) {
       // the draw preview updates automatically
+    } else if (draggingSineHandle) {
+      const sine = groups.find(group => group.id === draggingSineHandle.groupId)?.parametric;
+      if (!sine || sine.kind !== 'sine') return;
+      let next: ParametricSine = { ...sine };
+      if (draggingSineHandle.handle === 'move') {
+        next = { ...next, startTime: snapped.x, offset: snapped.y };
+      } else if (draggingSineHandle.handle === 'amplitude') {
+        next = { ...next, amplitude: Math.max(axisConfig.yGridSize / 2, Math.abs(snapped.y - sine.offset)) };
+      } else {
+        next = { ...next, period: Math.max(axisConfig.xGridSize, snapped.x - sine.startTime) };
+      }
+      updateParametricSine(draggingSineHandle.groupId, next, false);
+      dragChangedRef.current = true;
     } else if (draggingControl) {
       // Dragging a control point
       updateControlPoint(draggingControl, snapped);
@@ -759,7 +802,7 @@ function App() {
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
     }
-  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee]);
+  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingSineHandle, groups, axisConfig.xGridSize, axisConfig.yGridSize, updateParametricSine, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
@@ -790,6 +833,12 @@ function App() {
       setIsDrawing(false);
       setDrawStart(null);
       setCurrentMouse(null);
+    } else if (draggingSineHandle) {
+      if (dragChangedRef.current) {
+        dragChangedRef.current = false;
+        setTimeout(saveToHistory, 0);
+      }
+      setDraggingSineHandle(null);
     } else if (draggingControl) {
       // Control-point drag finished: save history only if something changed
       if (dragChangedRef.current) {
@@ -825,7 +874,7 @@ function App() {
       }
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingSineHandle, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -960,7 +1009,7 @@ function App() {
                 </span>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(1.25)}>+</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetViewport}>{t('reset')}</Button>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0}>{t('fitContent')}</Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={fitToContent} disabled={segments.length === 0 && !groups.some(group => group.visible && group.parametric?.kind === 'sine')}>{t('fitContent')}</Button>
                 <Button
                   variant={mode === 'pan' ? 'default' : 'ghost'}
                   size="sm"
@@ -1075,7 +1124,6 @@ function App() {
               onChangeGroupStyle={changeGroupStyle}
               selectedSegments={selectedSegments}
               onGenerateWaveform={generateWaveform}
-              onUpdateParametricSine={updateParametricSine}
               onGenerateTemplate={generateDcdcTemplate}
               onExtendMultiPhase={extendGroupMultiPhase}
               mode={mode}

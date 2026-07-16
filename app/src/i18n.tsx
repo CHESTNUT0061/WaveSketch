@@ -24,7 +24,7 @@ const S = {
 
   // Tooltips
   tipDraw: { zh: '点击并拖动画直线，吸附格点', en: 'Click and drag to draw a line, snapped to the grid' },
-  tipEdit: { zh: '先选组，再拖动端点/中点/控制点；参数化正弦请在右侧面板调整', en: 'Select a group first, then drag endpoints / midpoints / control points; edit parametric sines in the side panel' },
+  tipEdit: { zh: '先选组，再拖动端点/中点/控制点；正弦波可拖动蓝色起点、红色幅度、绿色周期手柄', en: 'Select a group first, then drag endpoints / midpoints / control points; sine uses blue start, red amplitude, and green period handles' },
   tipDelete: { zh: '点击线段删除', en: 'Click a segment to delete it' },
   tipMoveGroup: { zh: '拖动整组波形移动', en: 'Drag to move the whole group' },
   tipSelect: { zh: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制', en: 'Click to select, drag empty space to rubber-band, Shift to multi-select, drag to move, Delete to remove, Ctrl+C to copy' },
@@ -162,11 +162,10 @@ const S = {
   dcdcPhaseShift: { zh: '桥间相移 (°)', en: 'Bridge phase shift (°)' },
   dcdcResonantRatio: { zh: '谐振频率 / 开关频率', en: 'Resonant / switching frequency' },
 
-  // Parametric sine editor
-  parametricSineTitle: { zh: '参数化正弦编辑', en: 'Parametric sine editor' },
-  parametricSineHint: { zh: '已隐藏采样线段的编辑点；通过这些少量参数调整整条正弦。', en: 'Sample-segment handles are hidden; adjust the complete sine with these parameters.' },
-  parametricPhase: { zh: '相位 (°)', en: 'Phase (°)' },
-  parametricSineUpdate: { zh: '更新正弦', en: 'Update sine' },
+  generatorCategory: { zh: '生成类别', en: 'Generator category' },
+  generatorBasic: { zh: '基础波形', en: 'Basic waveforms' },
+  generatorDcdc: { zh: 'DC/DC 论文波形模板', en: 'DC/DC paper templates' },
+
 
   // Calculator
   calcTitle: { zh: '波形计算器', en: 'Waveform Calculator' },
