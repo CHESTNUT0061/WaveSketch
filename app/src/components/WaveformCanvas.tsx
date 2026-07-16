@@ -228,8 +228,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
 
-      // Draw the control point (edit mode)
-      if (mode === 'edit') {
+      // Draw control points only for the selected group. Otherwise a generated
+      // multi-curve waveform would expose unrelated handles across the canvas.
+      if (mode === 'edit' && selectedGroup === segment.groupId) {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
