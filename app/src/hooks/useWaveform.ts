@@ -199,6 +199,33 @@ function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Poin
   });
 }
 
+// One editable quadratic Bezier per half-period. With equal endpoint levels and
+// a control point at twice the peak amplitude, the midpoint lands at ±amplitude.
+// This deliberately favors a compact, hand-editable waveform over dense samples.
+function buildSineHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = params.amplitude;
+  const period = Math.max(0.001, params.period);
+  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const halfPeriod = period / 2;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalHalfCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * halfPeriod;
+    const sign = index % 2 === 0 ? 1 : -1;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + halfPeriod, y: offset },
+      control: { x: startX + halfPeriod / 2, y: offset + sign * 2 * amplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
 interface TemplateTrace {
   name: string;
   color: string;
@@ -1485,25 +1512,15 @@ export function useWaveform() {
 
     const primaryId = generateId();
     const primaryColor = customColor || getNextColor();
-    // A sine is stored as one parametric object. It has no backing line segments:
-    // Canvas and SVG render it analytically, so editing never explodes into points.
-    const primarySegs = type === 'sine' ? [] : toSegments(points, primaryId);
-    const parametric: ParametricSine | undefined = type === 'sine' ? {
-      kind: 'sine',
-      amplitude: params.amplitude,
-      period: params.period,
-      totalCycles: params.totalCycles,
-      startTime: params.startTime,
-      phaseShift: params.phaseShift,
-      offset: params.offset ?? 0,
-    } : undefined;
+    // Sine uses one editable curve per half-period, rather than 20 sampled
+    // line segments per cycle or one globally coupled parametric object.
+    const primarySegs = type === 'sine' ? buildSineHalfCycleSegments(params, primaryId) : toSegments(points, primaryId);
     const newGroups: WaveformGroup[] = [{
       id: primaryId,
       name: groupName,
       color: primaryColor,
       visible: true,
       segments: primarySegs.map(s => s.id),
-      ...(parametric ? { parametric } : {}),
     }];
     let allSegs = primarySegs;
 
