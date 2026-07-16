@@ -9,6 +9,17 @@ import { NumberInput } from '@/components/NumberInput';
 import type { WaveformGroup } from '@/types/waveform';
 
 export type WaveformType = 'square' | 'ramp' | 'sine' | 'triangle' | 'sawtooth' | 'trapezoid' | 'rectified' | 'damped';
+export type DcdcTemplate = 'llc' | 'dab' | 'buck' | 'boost';
+
+export interface DcdcTemplateParams {
+  amplitude: number;
+  period: number;
+  totalCycles: number;
+  startTime: number;
+  dutyCycle: number;
+  phaseShift: number;
+  resonantRatio: number;
+}
 
 interface WaveformGeneratorProps {
   onGenerate: (
@@ -31,6 +42,7 @@ interface WaveformGeneratorProps {
     skipHistorySave?: boolean,
     complementaryName?: string
   ) => void;
+  onGenerateTemplate: (template: DcdcTemplate, params: DcdcTemplateParams) => void;
   groups: WaveformGroup[];
   onExtendMultiPhase: (groupId: string, phaseCount: number, period: number) => void;
 }
@@ -59,7 +71,14 @@ const DUTY_LABEL_KEYS: Partial<Record<WaveformType, StringKey>> = {
   trapezoid: 'dutySquare',
 };
 
-export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, groups, onExtendMultiPhase }) => {
+const DCDC_TEMPLATE_KEYS: { value: DcdcTemplate; key: StringKey }[] = [
+  { value: 'llc', key: 'dcdcLlc' },
+  { value: 'dab', key: 'dcdcDab' },
+  { value: 'buck', key: 'dcdcBuck' },
+  { value: 'boost', key: 'dcdcBoost' },
+];
+
+export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, onGenerateTemplate, groups, onExtendMultiPhase }) => {
   const { t } = useI18n();
   const waveLabel = (v: WaveformType) => t(WAVE_TYPE_KEYS.find(w => w.value === v)!.key);
   const [type, setType] = useState<WaveformType>('square');
@@ -71,7 +90,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   const [offset, setOffset] = useState(0);
   const [edgePercent, setEdgePercent] = useState(10);
   const [dampingTau, setDampingTau] = useState(2);
-  const [_phaseShift, _setPhaseShift] = useState(0);
+  const [_phaseShift] = useState(0);
   const [enablePhaseShift, setEnablePhaseShift] = useState(false);
   const [phaseCount, setPhaseCount] = useState(4);
   const [enableComplementary, setEnableComplementary] = useState(false);
@@ -80,6 +99,14 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   const [mpGroupId, setMpGroupId] = useState('');
   const [mpPhaseCount, setMpPhaseCount] = useState(2);
   const [mpPeriod, setMpPeriod] = useState(2);
+  const [dcdcTemplate, setDcdcTemplate] = useState<DcdcTemplate>('llc');
+  const [dcdcAmplitude, setDcdcAmplitude] = useState(1);
+  const [dcdcPeriod, setDcdcPeriod] = useState(2);
+  const [dcdcCycles, setDcdcCycles] = useState(3);
+  const [dcdcStartTime, setDcdcStartTime] = useState(0);
+  const [dcdcDutyCycle, setDcdcDutyCycle] = useState(50);
+  const [dcdcPhaseShift, setDcdcPhaseShift] = useState(45);
+  const [resonantRatio, setResonantRatio] = useState(1);
 
   // Preset colors for multi-phase waveforms
   const PHASE_COLORS = [
@@ -134,6 +161,18 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         deadTimePercent,
       }, `${waveLabel(type)}`, undefined, false, withComp ? `${waveLabel(type)}${t('compSuffix')}` : undefined);
     }
+  };
+
+  const handleGenerateTemplate = () => {
+    onGenerateTemplate(dcdcTemplate, {
+      amplitude: dcdcAmplitude,
+      period: dcdcPeriod,
+      totalCycles: dcdcCycles,
+      startTime: dcdcStartTime,
+      dutyCycle: dcdcDutyCycle,
+      phaseShift: dcdcPhaseShift,
+      resonantRatio,
+    });
   };
 
   return (
@@ -287,6 +326,59 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         <Plus className="w-4 h-4" />
         {t('generate')}
       </Button>
+
+      {/* Common DC/DC topology waveform bundles */}
+      <div className="mt-3 pt-3 border-t border-purple-200">
+        <Label className="text-xs text-purple-700 mb-1 block">{t('dcdcTitle')}</Label>
+        <div className="text-xs text-gray-500 mb-2">{t('dcdcHint')}</div>
+        <Select value={dcdcTemplate} onValueChange={(v) => setDcdcTemplate(v as DcdcTemplate)}>
+          <SelectTrigger className="h-8 mb-2"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DCDC_TEMPLATE_KEYS.map(item => (
+              <SelectItem key={item.value} value={item.value}>{t(item.key)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <Label className="text-xs text-gray-600 mb-1 block">{t('amplitude')}</Label>
+            <NumberInput step="0.1" value={dcdcAmplitude} onValueChange={setDcdcAmplitude} className="h-8" />
+          </div>
+          <div>
+            <Label className="text-xs text-gray-600 mb-1 block">{t('period')}</Label>
+            <NumberInput min={0.001} step="0.1" value={dcdcPeriod} onValueChange={setDcdcPeriod} className="h-8" />
+          </div>
+          <div>
+            <Label className="text-xs text-gray-600 mb-1 block">{t('totalCycles')}</Label>
+            <NumberInput min={1} integer value={dcdcCycles} onValueChange={setDcdcCycles} className="h-8" />
+          </div>
+          <div>
+            <Label className="text-xs text-gray-600 mb-1 block">{t('startTime')}</Label>
+            <NumberInput step="0.1" value={dcdcStartTime} onValueChange={setDcdcStartTime} className="h-8" />
+          </div>
+        </div>
+        {(dcdcTemplate === 'buck' || dcdcTemplate === 'boost') && (
+          <div className="mb-2">
+            <Label className="text-xs text-gray-600 mb-1 block">{t('dutySquare')}</Label>
+            <NumberInput min={1} max={99} value={dcdcDutyCycle} onValueChange={setDcdcDutyCycle} className="h-8" />
+          </div>
+        )}
+        {dcdcTemplate === 'dab' && (
+          <div className="mb-2">
+            <Label className="text-xs text-gray-600 mb-1 block">{t('dcdcPhaseShift')}</Label>
+            <NumberInput min={-180} max={180} step="5" value={dcdcPhaseShift} onValueChange={setDcdcPhaseShift} className="h-8" />
+          </div>
+        )}
+        {dcdcTemplate === 'llc' && (
+          <div className="mb-2">
+            <Label className="text-xs text-gray-600 mb-1 block">{t('dcdcResonantRatio')}</Label>
+            <NumberInput min={0.25} max={4} step="0.05" value={resonantRatio} onValueChange={setResonantRatio} className="h-8" />
+          </div>
+        )}
+        <Button size="sm" variant="outline" onClick={handleGenerateTemplate} className="w-full flex items-center gap-1">
+          <Layers className="w-4 h-4" />{t('dcdcGenerate')}
+        </Button>
+      </div>
 
       {/* Multi-phase extension of an existing group */}
       <div className="mt-3 pt-3 border-t border-purple-200">

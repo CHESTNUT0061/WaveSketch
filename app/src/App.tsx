@@ -156,6 +156,7 @@ function App() {
     downloadJSON,
     importData,
     generateWaveform,
+    generateDcdcTemplate,
     extendGroupMultiPhase,
     worldToScreen,
   } = useWaveform();
@@ -1066,6 +1067,7 @@ function App() {
               onChangeGroupStyle={changeGroupStyle}
               selectedSegments={selectedSegments}
               onGenerateWaveform={generateWaveform}
+              onGenerateTemplate={generateDcdcTemplate}
               onExtendMultiPhase={extendGroupMultiPhase}
               mode={mode}
               isCopyPreview={isCopyPreview}

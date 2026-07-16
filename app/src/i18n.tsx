@@ -151,6 +151,17 @@ const S = {
   wtRectified: { zh: '整流正弦 |sin|', en: 'Rectified sine |sin|' },
   wtDamped: { zh: '阻尼振荡（振铃）', en: 'Damped ringing' },
 
+  // DC/DC waveform bundles
+  dcdcTitle: { zh: 'DC/DC 论文波形模板', en: 'DC/DC paper waveform templates' },
+  dcdcHint: { zh: '一次生成同一时基下的多条典型波形；数值为归一化示意，可继续编辑。', en: 'Creates aligned, normalized reference waveforms that remain editable.' },
+  dcdcGenerate: { zh: '生成模板组', en: 'Generate template bundle' },
+  dcdcLlc: { zh: 'LLC 谐振：vHB、iLr、iLm、vCr、iSec', en: 'LLC resonant: vHB, iLr, iLm, vCr, iSec' },
+  dcdcDab: { zh: 'DAB：vAB、vCD、iL', en: 'DAB: vAB, vCD, iL' },
+  dcdcBuck: { zh: 'Buck：vSW、iL、iC', en: 'Buck: vSW, iL, iC' },
+  dcdcBoost: { zh: 'Boost：vSW、iL、iC', en: 'Boost: vSW, iL, iC' },
+  dcdcPhaseShift: { zh: '桥间相移 (°)', en: 'Bridge phase shift (°)' },
+  dcdcResonantRatio: { zh: '谐振频率 / 开关频率', en: 'Resonant / switching frequency' },
+
   // Calculator
   calcTitle: { zh: '波形计算器', en: 'Waveform Calculator' },
   calcPlaceholder: { zh: '点击按钮构建算式...', en: 'Build an expression with the buttons...' },

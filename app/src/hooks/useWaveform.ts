@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode } from '@/types/waveform';
 import { LINE_DASH } from '@/types/waveform';
-import type { WaveformType } from '@/components/WaveformGenerator';
+import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -184,6 +184,90 @@ function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[
   }
 
   return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
+}
+
+interface TemplateTrace {
+  name: string;
+  color: string;
+  points: Point[];
+}
+
+const TEMPLATE_COLORS = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed'];
+
+function buildSquareTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, dutyCycle = 50, phaseShift = 0): Point[] {
+  const dutyTime = period * Math.max(0, Math.min(100, dutyCycle)) / 100;
+  const phaseOffset = period * phaseShift / 360;
+  const points: Point[] = [];
+  for (let cycle = 0; cycle < totalCycles; cycle++) {
+    const t = startTime + cycle * period + phaseOffset;
+    points.push({ x: t, y: offset - amplitude });
+    points.push({ x: t, y: offset + amplitude });
+    points.push({ x: t + dutyTime, y: offset + amplitude });
+    points.push({ x: t + dutyTime, y: offset - amplitude });
+    points.push({ x: t + period, y: offset - amplitude });
+  }
+  return points;
+}
+
+function buildSineTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, phaseDegrees = 0, cyclesPerPeriod = 1): Point[] {
+  const sampleCount = Math.max(2, Math.ceil(totalCycles * 40 * cyclesPerPeriod));
+  const totalTime = period * totalCycles;
+  const phase = phaseDegrees * Math.PI / 180;
+  return Array.from({ length: sampleCount + 1 }, (_, i) => {
+    const t = totalTime * i / sampleCount;
+    return {
+      x: startTime + t,
+      y: offset + amplitude * Math.sin(2 * Math.PI * cyclesPerPeriod * t / period + phase),
+    };
+  });
+}
+
+function buildRampTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, dutyCycle: number, invert = false): Point[] {
+  const riseTime = period * Math.max(1, Math.min(99, dutyCycle)) / 100;
+  const low = offset - amplitude;
+  const high = offset + amplitude;
+  const points: Point[] = [];
+  for (let cycle = 0; cycle < totalCycles; cycle++) {
+    const t = startTime + cycle * period;
+    points.push({ x: t, y: invert ? high : low });
+    points.push({ x: t + riseTime, y: invert ? low : high });
+    points.push({ x: t + period, y: invert ? high : low });
+  }
+  return points;
+}
+
+function buildDcdcTemplate(template: DcdcTemplate, params: DcdcTemplateParams): TemplateTrace[] {
+  const amplitude = Math.abs(params.amplitude);
+  const period = Math.max(0.001, params.period);
+  const totalCycles = Math.max(1, Math.floor(params.totalCycles));
+  const { startTime, dutyCycle, phaseShift } = params;
+
+  if (template === 'llc') {
+    const ratio = Math.max(0.25, Math.min(4, params.resonantRatio));
+    return [
+      { name: 'LLC · vHB', color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 4, 50) },
+      { name: 'LLC · iLr', color: TEMPLATE_COLORS[1], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 1.5, -10, ratio) },
+      { name: 'LLC · iLm', color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.45, amplitude * -1, 50) },
+      { name: 'LLC · vCr', color: TEMPLATE_COLORS[3], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.7, amplitude * -3.5, -100, ratio) },
+      { name: 'LLC · iSec', color: TEMPLATE_COLORS[4], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.75, amplitude * -6, 0, ratio).map(p => ({ ...p, y: amplitude * -6 + Math.abs(p.y - amplitude * -6) })) },
+    ];
+  }
+
+  if (template === 'dab') {
+    return [
+      { name: 'DAB · vAB', color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 2.8) },
+      { name: 'DAB · vCD', color: TEMPLATE_COLORS[1], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, 0, 50, phaseShift) },
+      { name: 'DAB · iL', color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.7, amplitude * -2.8, 50) },
+    ];
+  }
+
+  const isBoost = template === 'boost';
+  const prefix = isBoost ? 'Boost' : 'Buck';
+  return [
+    { name: `${prefix} · vSW`, color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 2.6, dutyCycle) },
+    { name: `${prefix} · iL`, color: TEMPLATE_COLORS[1], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.65, 0, isBoost ? 100 - dutyCycle : dutyCycle, isBoost) },
+    { name: `${prefix} · iC`, color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.45, amplitude * -2.6, dutyCycle, !isBoost) },
+  ];
 }
 
 export function useWaveform() {
@@ -1405,6 +1489,39 @@ export function useWaveform() {
     }
   }, [saveToHistory, getNextColor, groups]);
 
+  // Create a vertically separated, time-aligned set of common DC/DC paper waveforms.
+  // The traces are deliberately normalized reference shapes, not a circuit simulator.
+  const generateDcdcTemplate = useCallback((template: DcdcTemplate, params: DcdcTemplateParams) => {
+    const traces = buildDcdcTemplate(template, params);
+    if (traces.length === 0) return;
+
+    const newGroups: WaveformGroup[] = [];
+    const newSegments: LineSegment[] = [];
+    traces.forEach((trace) => {
+      const groupId = generateId();
+      const traceSegments: LineSegment[] = [];
+      for (let i = 0; i < trace.points.length - 1; i++) {
+        const start = trace.points[i];
+        const end = trace.points[i + 1];
+        if (start.x === end.x && start.y === end.y) continue;
+        traceSegments.push({ id: generateId(), start, end, type: 'line', groupId });
+      }
+      newSegments.push(...traceSegments);
+      newGroups.push({
+        id: groupId,
+        name: trace.name,
+        color: trace.color,
+        visible: true,
+        segments: traceSegments.map(segment => segment.id),
+      });
+    });
+
+    setSegments(prev => [...prev, ...newSegments]);
+    setGroups(prev => [...prev, ...newGroups]);
+    setSelectedGroup(newGroups[0].id);
+    setTimeout(saveToHistory, 0);
+  }, [saveToHistory]);
+
   return {
     segments,
     groups,
@@ -1482,6 +1599,7 @@ export function useWaveform() {
     downloadJSON,
     importData,
     generateWaveform,
+    generateDcdcTemplate,
     extendGroupMultiPhase,
   };
 }
