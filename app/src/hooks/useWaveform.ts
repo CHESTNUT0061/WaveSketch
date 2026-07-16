@@ -159,14 +159,15 @@ function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[
       points.push({ x: cycleStart + period, y: -amplitude });
     }
   } else if (type === 'rectified') {
-    // Rectified sine |A*sin| (rectifier output)
+    // Full-wave rectified sine. Its period is one positive lobe (π radians),
+    // i.e. half the period of the source sine.
     const samplesPerPeriod = 20;
     const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
     const dt = period / samplesPerPeriod;
     const phaseRad = (phaseShift * Math.PI) / 180;
     for (let i = 0; i <= totalSamples; i++) {
       const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
+      const normalizedT = ((t - startTime) / period) * Math.PI + phaseRad;
       points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
     }
   } else if (type === 'damped') {
@@ -226,24 +227,23 @@ function buildSineHalfCycleSegments(params: GenerateParams, groupId: string): Li
   return segments;
 }
 
-// Full-wave rectification makes both half-cycles positive, so each half remains
-// independently editable while sharing the same zero-crossing endpoints.
+// Full-wave rectification makes the original positive and negative half-cycles
+// identical. Therefore one generated period is one positive lobe, not two.
 function buildRectifiedHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
   const amplitude = Math.abs(params.amplitude);
   const period = Math.max(0.001, params.period);
-  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const totalCycles = Math.max(1, Math.floor(params.totalCycles));
   const offset = params.offset ?? 0;
   const phaseOffset = period * params.phaseShift / 360;
-  const halfPeriod = period / 2;
   const segments: LineSegment[] = [];
 
-  for (let index = 0; index < totalHalfCycles; index++) {
-    const startX = params.startTime + phaseOffset + index * halfPeriod;
+  for (let index = 0; index < totalCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * period;
     segments.push({
       id: generateId(),
       start: { x: startX, y: offset },
-      end: { x: startX + halfPeriod, y: offset },
-      control: { x: startX + halfPeriod / 2, y: offset + 2 * amplitude },
+      end: { x: startX + period, y: offset },
+      control: { x: startX + period / 2, y: offset + 2 * amplitude },
       type: 'curve',
       groupId,
     });
