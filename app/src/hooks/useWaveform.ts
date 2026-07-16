@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
 import { LINE_DASH } from '@/types/waveform';
 import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
 
@@ -1447,12 +1447,22 @@ export function useWaveform() {
     const primaryId = generateId();
     const primaryColor = customColor || getNextColor();
     const primarySegs = toSegments(points, primaryId);
+    const parametric: ParametricSine | undefined = type === 'sine' ? {
+      kind: 'sine',
+      amplitude: params.amplitude,
+      period: params.period,
+      totalCycles: params.totalCycles,
+      startTime: params.startTime,
+      phaseShift: params.phaseShift,
+      offset: params.offset ?? 0,
+    } : undefined;
     const newGroups: WaveformGroup[] = [{
       id: primaryId,
       name: groupName,
       color: primaryColor,
       visible: true,
       segments: primarySegs.map(s => s.id),
+      ...(parametric ? { parametric } : {}),
     }];
     let allSegs = primarySegs;
 
@@ -1488,6 +1498,42 @@ export function useWaveform() {
       setTimeout(saveToHistory, 0);
     }
   }, [saveToHistory, getNextColor, groups]);
+
+  const updateParametricSine = useCallback((groupId: string, next: ParametricSine) => {
+    const group = groups.find(g => g.id === groupId);
+    if (!group || group.parametric?.kind !== 'sine') return;
+
+    const params: GenerateParams = {
+      amplitude: next.amplitude,
+      period: Math.max(0.001, next.period),
+      dutyCycle: 50,
+      totalCycles: Math.max(1, Math.floor(next.totalCycles)),
+      startTime: next.startTime,
+      phaseShift: next.phaseShift,
+      offset: next.offset,
+    };
+    const points = buildWaveformPoints('sine', params);
+    const replacement = points.slice(0, -1).map((start, index): LineSegment => ({
+      id: generateId(),
+      start,
+      end: points[index + 1],
+      type: 'line',
+      groupId,
+    }));
+    const oldIds = new Set(group.segments);
+    const normalized: ParametricSine = {
+      ...next,
+      period: params.period,
+      totalCycles: params.totalCycles,
+    };
+
+    setSegments(prev => [...prev.filter(segment => !oldIds.has(segment.id)), ...replacement]);
+    setGroups(prev => prev.map(item => item.id === groupId
+      ? { ...item, segments: replacement.map(segment => segment.id), parametric: normalized }
+      : item
+    ));
+    setTimeout(saveToHistory, 0);
+  }, [groups, saveToHistory]);
 
   // Create a vertically separated, time-aligned set of common DC/DC paper waveforms.
   // The traces are deliberately normalized reference shapes, not a circuit simulator.
@@ -1599,6 +1645,7 @@ export function useWaveform() {
     downloadJSON,
     importData,
     generateWaveform,
+    updateParametricSine,
     generateDcdcTemplate,
     extendGroupMultiPhase,
   };

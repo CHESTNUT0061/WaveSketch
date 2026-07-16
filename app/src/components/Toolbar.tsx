@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType, type DcdcTemplate, type DcdcTemplateParams } from './WaveformGenerator';
+import type { ParametricSine } from '@/types/waveform';
 import { NumberInput } from './NumberInput';
 import type { WaveformGroup, LineSegment, CalcRpnToken, LineStyle } from '@/types/waveform';
 import { useI18n } from '@/i18n';
@@ -273,6 +274,7 @@ interface ToolbarProps {
     complementaryName?: string
   ) => void;
   onGenerateTemplate: (template: DcdcTemplate, params: DcdcTemplateParams) => void;
+  onUpdateParametricSine: (groupId: string, params: ParametricSine) => void;
   onExtendMultiPhase: (groupId: string, phaseCount: number, period: number) => void;
   // Select-mode props
   mode?: string;
@@ -297,6 +299,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   selectedSegments,
   onGenerateWaveform,
   onGenerateTemplate,
+  onUpdateParametricSine,
   onExtendMultiPhase,
   mode = 'draw',
   isCopyPreview = false,
@@ -559,7 +562,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Tab content */}
       <div className="mb-4">
         {activeTab === 'generator' && (
-          <WaveformGenerator onGenerate={onGenerateWaveform} onGenerateTemplate={onGenerateTemplate} groups={groups} onExtendMultiPhase={onExtendMultiPhase} />
+          <WaveformGenerator onGenerate={onGenerateWaveform} onGenerateTemplate={onGenerateTemplate} onUpdateParametricSine={onUpdateParametricSine} groups={groups} selectedGroup={selectedGroup} onExtendMultiPhase={onExtendMultiPhase} />
         )}
         {activeTab === 'calculator' && (
           <WaveformCalculator groups={groups} onCalculate={onCalculateWaveforms} />

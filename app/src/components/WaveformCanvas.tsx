@@ -256,7 +256,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // Edit mode: endpoints/midpoints only for the selected group (drag the midpoint to create a curve)
-    if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup) {
+    if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup && !group?.parametric) {
       // Endpoints
       ctx.fillStyle = segment.id === activeSegment ? '#10b981' : '#3b82f6';
       ctx.beginPath();

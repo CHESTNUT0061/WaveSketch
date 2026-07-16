@@ -156,6 +156,7 @@ function App() {
     downloadJSON,
     importData,
     generateWaveform,
+    updateParametricSine,
     generateDcdcTemplate,
     extendGroupMultiPhase,
     worldToScreen,
@@ -587,6 +588,12 @@ function App() {
         }
         return;
       }
+
+      // Generated sine groups are edited through their compact parameter panel,
+      // so their sampled render segments never expose dozens of handles.
+      if (groups.find(group => group.id === selectedGroup)?.parametric?.kind === 'sine') {
+        return;
+      }
       
       // Edit mode: check control points, endpoints, then midpoints (drag targets) - selected group only
       
@@ -670,7 +677,7 @@ function App() {
         setMarquee({ start: rawPos, end: rawPos });
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, groups, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Canvas panning in progress
@@ -822,6 +829,7 @@ function App() {
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
+      if (selectedGroup && groups.find(group => group.id === selectedGroup)?.parametric?.kind === 'sine') return;
       const segmentId = checkSegmentHit(e);
       if (segmentId) {
         const worldPos = getMouseWorldPos(e);
@@ -829,7 +837,7 @@ function App() {
         addControlPoint(segmentId, snapped);
       }
     }
-  }, [mode, checkSegmentHit, getMouseWorldPos, snapToGrid, addControlPoint]);
+  }, [mode, selectedGroup, groups, checkSegmentHit, getMouseWorldPos, snapToGrid, addControlPoint]);
 
   // Tool button tooltips
   const TOOLTIPS: Record<string, string> = {
@@ -1067,6 +1075,7 @@ function App() {
               onChangeGroupStyle={changeGroupStyle}
               selectedSegments={selectedSegments}
               onGenerateWaveform={generateWaveform}
+              onUpdateParametricSine={updateParametricSine}
               onGenerateTemplate={generateDcdcTemplate}
               onExtendMultiPhase={extendGroupMultiPhase}
               mode={mode}

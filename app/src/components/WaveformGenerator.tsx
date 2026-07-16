@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Layers } from 'lucide-react';
 import { useI18n, type StringKey } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
-import type { WaveformGroup } from '@/types/waveform';
+import type { ParametricSine, WaveformGroup } from '@/types/waveform';
 
 export type WaveformType = 'square' | 'ramp' | 'sine' | 'triangle' | 'sawtooth' | 'trapezoid' | 'rectified' | 'damped';
 export type DcdcTemplate = 'llc' | 'dab' | 'buck' | 'boost';
@@ -43,7 +43,9 @@ interface WaveformGeneratorProps {
     complementaryName?: string
   ) => void;
   onGenerateTemplate: (template: DcdcTemplate, params: DcdcTemplateParams) => void;
+  onUpdateParametricSine: (groupId: string, params: ParametricSine) => void;
   groups: WaveformGroup[];
+  selectedGroup: string | null;
   onExtendMultiPhase: (groupId: string, phaseCount: number, period: number) => void;
 }
 
@@ -78,7 +80,7 @@ const DCDC_TEMPLATE_KEYS: { value: DcdcTemplate; key: StringKey }[] = [
   { value: 'boost', key: 'dcdcBoost' },
 ];
 
-export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, onGenerateTemplate, groups, onExtendMultiPhase }) => {
+export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, onGenerateTemplate, onUpdateParametricSine, groups, selectedGroup, onExtendMultiPhase }) => {
   const { t } = useI18n();
   const waveLabel = (v: WaveformType) => t(WAVE_TYPE_KEYS.find(w => w.value === v)!.key);
   const [type, setType] = useState<WaveformType>('square');
@@ -107,6 +109,23 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   const [dcdcDutyCycle, setDcdcDutyCycle] = useState(50);
   const [dcdcPhaseShift, setDcdcPhaseShift] = useState(45);
   const [resonantRatio, setResonantRatio] = useState(1);
+  const selectedParametric = groups.find(group => group.id === selectedGroup)?.parametric;
+  const [paramAmplitude, setParamAmplitude] = useState(1);
+  const [paramPeriod, setParamPeriod] = useState(2);
+  const [paramCycles, setParamCycles] = useState(3);
+  const [paramStartTime, setParamStartTime] = useState(0);
+  const [paramPhase, setParamPhase] = useState(0);
+  const [paramOffset, setParamOffset] = useState(0);
+
+  useEffect(() => {
+    if (!selectedParametric || selectedParametric.kind !== 'sine') return;
+    setParamAmplitude(selectedParametric.amplitude);
+    setParamPeriod(selectedParametric.period);
+    setParamCycles(selectedParametric.totalCycles);
+    setParamStartTime(selectedParametric.startTime);
+    setParamPhase(selectedParametric.phaseShift);
+    setParamOffset(selectedParametric.offset);
+  }, [selectedGroup, selectedParametric]);
 
   // Preset colors for multi-phase waveforms
   const PHASE_COLORS = [
@@ -172,6 +191,19 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       dutyCycle: dcdcDutyCycle,
       phaseShift: dcdcPhaseShift,
       resonantRatio,
+    });
+  };
+
+  const handleUpdateParametricSine = () => {
+    if (!selectedGroup || selectedParametric?.kind !== 'sine') return;
+    onUpdateParametricSine(selectedGroup, {
+      kind: 'sine',
+      amplitude: paramAmplitude,
+      period: paramPeriod,
+      totalCycles: paramCycles,
+      startTime: paramStartTime,
+      phaseShift: paramPhase,
+      offset: paramOffset,
     });
   };
 
@@ -326,6 +358,42 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
         <Plus className="w-4 h-4" />
         {t('generate')}
       </Button>
+
+      {selectedParametric?.kind === 'sine' && (
+        <div className="mt-3 pt-3 border-t border-purple-200">
+          <Label className="text-xs text-purple-700 mb-1 block">{t('parametricSineTitle')}</Label>
+          <div className="text-xs text-gray-500 mb-2">{t('parametricSineHint')}</div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('amplitude')}</Label>
+              <NumberInput step="0.1" value={paramAmplitude} onValueChange={setParamAmplitude} className="h-8" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('period')}</Label>
+              <NumberInput min={0.001} step="0.1" value={paramPeriod} onValueChange={setParamPeriod} className="h-8" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('totalCycles')}</Label>
+              <NumberInput min={1} integer value={paramCycles} onValueChange={setParamCycles} className="h-8" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('startTime')}</Label>
+              <NumberInput step="0.1" value={paramStartTime} onValueChange={setParamStartTime} className="h-8" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('parametricPhase')}</Label>
+              <NumberInput step="5" value={paramPhase} onValueChange={setParamPhase} className="h-8" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-600 mb-1 block">{t('dcOffset')}</Label>
+              <NumberInput step="0.1" value={paramOffset} onValueChange={setParamOffset} className="h-8" />
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleUpdateParametricSine} className="w-full">
+            {t('parametricSineUpdate')}
+          </Button>
+        </div>
+      )}
 
       {/* Common DC/DC topology waveform bundles */}
       <div className="mt-3 pt-3 border-t border-purple-200">
