@@ -24,7 +24,7 @@ const S = {
 
   // Tooltips
   tipDraw: { zh: '点击并拖动画直线，吸附格点', en: 'Click and drag to draw a line, snapped to the grid' },
-  tipEdit: { zh: '先选组，再拖动端点/中点/控制点；正弦波按半周期分段编辑', en: 'Select a group first, then drag endpoints / midpoints / control points; sine is edited in half-cycle segments' },
+  tipEdit: { zh: '先选组，再拖动端点/中点/控制点；正弦、整流正弦与阻尼振荡均按半周期分段编辑', en: 'Select a group first, then drag endpoints / midpoints / control points; sine, rectified sine, and damped ringing use half-cycle segments' },
   tipDelete: { zh: '点击线段删除', en: 'Click a segment to delete it' },
   tipMoveGroup: { zh: '拖动整组波形移动', en: 'Drag to move the whole group' },
   tipSelect: { zh: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制', en: 'Click to select, drag empty space to rubber-band, Shift to multi-select, drag to move, Delete to remove, Ctrl+C to copy' },

@@ -226,6 +226,60 @@ function buildSineHalfCycleSegments(params: GenerateParams, groupId: string): Li
   return segments;
 }
 
+// Full-wave rectification makes both half-cycles positive, so each half remains
+// independently editable while sharing the same zero-crossing endpoints.
+function buildRectifiedHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = Math.abs(params.amplitude);
+  const period = Math.max(0.001, params.period);
+  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const halfPeriod = period / 2;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalHalfCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * halfPeriod;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + halfPeriod, y: offset },
+      control: { x: startX + halfPeriod / 2, y: offset + 2 * amplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
+// Damping is captured in the individual half-cycle peak values. Editing one
+// segment therefore does not recalculate or distort later portions of the ring.
+function buildDampedHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = params.amplitude;
+  const period = Math.max(0.001, params.period);
+  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const halfPeriod = period / 2;
+  const tau = Math.max(0.1, params.dampingTau ?? 2) * period;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalHalfCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * halfPeriod;
+    const peakTime = (index + 0.5) * halfPeriod;
+    const peakAmplitude = amplitude * Math.exp(-peakTime / tau);
+    const sign = index % 2 === 0 ? 1 : -1;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + halfPeriod, y: offset },
+      control: { x: startX + halfPeriod / 2, y: offset + sign * 2 * peakAmplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
 interface TemplateTrace {
   name: string;
   color: string;
@@ -1512,9 +1566,15 @@ export function useWaveform() {
 
     const primaryId = generateId();
     const primaryColor = customColor || getNextColor();
-    // Sine uses one editable curve per half-period, rather than 20 sampled
-    // line segments per cycle or one globally coupled parametric object.
-    const primarySegs = type === 'sine' ? buildSineHalfCycleSegments(params, primaryId) : toSegments(points, primaryId);
+    // Smooth basic waveforms use one editable curve per half-period, rather
+    // than dense samples or one globally coupled parametric object.
+    const primarySegs = type === 'sine'
+      ? buildSineHalfCycleSegments(params, primaryId)
+      : type === 'rectified'
+        ? buildRectifiedHalfCycleSegments(params, primaryId)
+        : type === 'damped'
+          ? buildDampedHalfCycleSegments(params, primaryId)
+          : toSegments(points, primaryId);
     const newGroups: WaveformGroup[] = [{
       id: primaryId,
       name: groupName,
