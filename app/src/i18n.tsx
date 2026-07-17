@@ -115,6 +115,7 @@ const S = {
 
   // Generator
   waveType: { zh: '波形类型', en: 'Waveform type' },
+  generatorCategoryType: { zh: '生成类别-波形类型', en: 'Category - waveform type' },
   amplitude: { zh: '幅度', en: 'Amplitude' },
   period: { zh: '周期', en: 'Period' },
   totalCycles: { zh: '总周期数', en: 'Cycles' },
@@ -143,19 +144,23 @@ const S = {
 
   // Waveform type labels
   wtSquare: { zh: '方波', en: 'Square' },
-  wtRamp: { zh: 'Ramp波（电感电流）', en: 'Ramp (inductor current)' },
+  wtRamp: { zh: 'Ramp波', en: 'Ramp' },
   wtSine: { zh: '正弦波', en: 'Sine' },
-  wtTriangle: { zh: '三角波（PWM载波）', en: 'Triangle (PWM carrier)' },
+  wtTriangle: { zh: '三角波', en: 'Triangle' },
   wtSawtooth: { zh: '锯齿波', en: 'Sawtooth' },
-  wtTrapezoid: { zh: '梯形波（开关节点）', en: 'Trapezoid (switch node)' },
+  wtTrapezoid: { zh: '梯形波', en: 'Trapezoid' },
   wtRectified: { zh: '整流正弦 |sin|', en: 'Rectified sine |sin|' },
-  wtDamped: { zh: '阻尼振荡（振铃）', en: 'Damped ringing' },
+  wtDamped: { zh: '阻尼振荡', en: 'Damped ringing' },
 
   // DC/DC waveform bundles
   dcdcTitle: { zh: 'DC/DC 论文波形模板', en: 'DC/DC paper waveform templates' },
   dcdcHint: { zh: '一次生成同一时基下的多条典型波形；数值为归一化示意，可继续编辑。', en: 'Creates aligned, normalized reference waveforms that remain editable.' },
   dcdcGenerate: { zh: '生成模板组', en: 'Generate template bundle' },
   dcdcLlc: { zh: 'LLC 谐振：vHB、iLr、iLm、vCr、iSec', en: 'LLC resonant: vHB, iLr, iLm, vCr, iSec' },
+  dcdcLlcShort: { zh: 'LLC 谐振', en: 'LLC resonant' },
+  dcdcDabShort: { zh: 'DAB', en: 'DAB' },
+  dcdcBuckShort: { zh: 'Buck', en: 'Buck' },
+  dcdcBoostShort: { zh: 'Boost', en: 'Boost' },
   dcdcDab: { zh: 'DAB：vAB、vCD、iL', en: 'DAB: vAB, vCD, iL' },
   dcdcBuck: { zh: 'Buck：vSW、iL、iC', en: 'Buck: vSW, iL, iC' },
   dcdcBoost: { zh: 'Boost：vSW、iL、iC', en: 'Boost: vSW, iL, iC' },

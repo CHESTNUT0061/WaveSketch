@@ -2,8 +2,18 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Layers } from 'lucide-react';
+import { ChevronDown, Plus, Layers } from 'lucide-react';
 import { useI18n, type StringKey } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
 import type { WaveformGroup } from '@/types/waveform';
@@ -72,15 +82,16 @@ const DUTY_LABEL_KEYS: Partial<Record<WaveformType, StringKey>> = {
 };
 
 const DCDC_TEMPLATE_KEYS: { value: DcdcTemplate; key: StringKey }[] = [
-  { value: 'llc', key: 'dcdcLlc' },
-  { value: 'dab', key: 'dcdcDab' },
-  { value: 'buck', key: 'dcdcBuck' },
-  { value: 'boost', key: 'dcdcBoost' },
+  { value: 'llc', key: 'dcdcLlcShort' },
+  { value: 'dab', key: 'dcdcDabShort' },
+  { value: 'buck', key: 'dcdcBuckShort' },
+  { value: 'boost', key: 'dcdcBoostShort' },
 ];
 
 export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, onGenerateTemplate, groups, onExtendMultiPhase }) => {
   const { t } = useI18n();
   const waveLabel = (v: WaveformType) => t(WAVE_TYPE_KEYS.find(w => w.value === v)!.key);
+  const dcdcLabel = (v: DcdcTemplate) => t(DCDC_TEMPLATE_KEYS.find(item => item.value === v)!.key);
   const [type, setType] = useState<WaveformType>('square');
   const [amplitude, setAmplitude] = useState(1);
   const [period, setPeriod] = useState(2);
@@ -179,32 +190,60 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   return (
     <div className="p-3 bg-purple-50 rounded border border-purple-200">
       <div className="mb-3">
-        <Label className="text-xs text-gray-600 mb-1 block">{t('generatorCategory')}</Label>
-        <Select value={category} onValueChange={(value) => setCategory(value as 'basic' | 'dcdc')}>
-          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="basic">{t('generatorBasic')}</SelectItem>
-            <SelectItem value="dcdc">{t('generatorDcdc')}</SelectItem>
-          </SelectContent>
-        </Select>
+        <Label className="text-xs text-gray-600 mb-1 block">{t('generatorCategoryType')}</Label>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="h-8 w-full justify-between px-3 font-normal">
+              <span className="truncate">
+                {category === 'basic'
+                  ? `${t('generatorBasic')} / ${waveLabel(type)}`
+                  : `${t('generatorDcdc')} / ${dcdcLabel(dcdcTemplate)}`}
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>{t('generatorBasic')}</DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent className="w-48">
+                  {WAVE_TYPE_KEYS.map(w => (
+                    <DropdownMenuItem
+                      key={w.value}
+                      onSelect={() => {
+                        setCategory('basic');
+                        setType(w.value);
+                      }}
+                    >
+                      {t(w.key)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>{t('generatorDcdc')}</DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent className="w-48">
+                  {DCDC_TEMPLATE_KEYS.map(item => (
+                    <DropdownMenuItem
+                      key={item.value}
+                      onSelect={() => {
+                        setCategory('dcdc');
+                        setDcdcTemplate(item.value);
+                      }}
+                    >
+                      {t(item.key)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {category === 'basic' && <>
-      {/* Waveform type */}
-      <div className="mb-3">
-        <Label className="text-xs text-gray-600 mb-1 block">{t('waveType')}</Label>
-        <Select value={type} onValueChange={(v) => setType(v as WaveformType)}>
-          <SelectTrigger className="h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {WAVE_TYPE_KEYS.map(w => (
-              <SelectItem key={w.value} value={w.value}>{t(w.key)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       {/* Parameter row 1 */}
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div>
@@ -346,14 +385,6 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       {category === 'dcdc' && <div className="pt-1">
         <Label className="text-xs text-purple-700 mb-1 block">{t('dcdcTitle')}</Label>
         <div className="text-xs text-gray-500 mb-2">{t('dcdcHint')}</div>
-        <Select value={dcdcTemplate} onValueChange={(v) => setDcdcTemplate(v as DcdcTemplate)}>
-          <SelectTrigger className="h-8 mb-2"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {DCDC_TEMPLATE_KEYS.map(item => (
-              <SelectItem key={item.value} value={item.value}>{t(item.key)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div>
             <Label className="text-xs text-gray-600 mb-1 block">{t('amplitude')}</Label>
