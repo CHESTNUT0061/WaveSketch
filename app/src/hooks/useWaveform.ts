@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
 import { LINE_DASH } from '@/types/waveform';
-import type { WaveformType } from '@/components/WaveformGenerator';
+import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -159,14 +159,15 @@ function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[
       points.push({ x: cycleStart + period, y: -amplitude });
     }
   } else if (type === 'rectified') {
-    // Rectified sine |A*sin| (rectifier output)
+    // Full-wave rectified sine. Its period is one positive lobe (π radians),
+    // i.e. half the period of the source sine.
     const samplesPerPeriod = 20;
     const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
     const dt = period / samplesPerPeriod;
     const phaseRad = (phaseShift * Math.PI) / 180;
     for (let i = 0; i <= totalSamples; i++) {
       const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
+      const normalizedT = ((t - startTime) / period) * Math.PI + phaseRad;
       points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
     }
   } else if (type === 'damped') {
@@ -184,6 +185,183 @@ function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[
   }
 
   return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
+}
+
+function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Point[] {
+  const samples = Math.max(80, Math.ceil(sine.totalCycles * samplesPerPeriod));
+  const totalTime = sine.period * sine.totalCycles;
+  const phase = sine.phaseShift * Math.PI / 180;
+  return Array.from({ length: samples + 1 }, (_, index) => {
+    const elapsed = totalTime * index / samples;
+    return {
+      x: sine.startTime + elapsed,
+      y: sine.offset + sine.amplitude * Math.sin(2 * Math.PI * elapsed / sine.period + phase),
+    };
+  });
+}
+
+// One editable quadratic Bezier per half-period. With equal endpoint levels and
+// a control point at twice the peak amplitude, the midpoint lands at ±amplitude.
+// This deliberately favors a compact, hand-editable waveform over dense samples.
+function buildSineHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = params.amplitude;
+  const period = Math.max(0.001, params.period);
+  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const halfPeriod = period / 2;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalHalfCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * halfPeriod;
+    const sign = index % 2 === 0 ? 1 : -1;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + halfPeriod, y: offset },
+      control: { x: startX + halfPeriod / 2, y: offset + sign * 2 * amplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
+// Full-wave rectification makes the original positive and negative half-cycles
+// identical. Therefore one generated period is one positive lobe, not two.
+function buildRectifiedHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = Math.abs(params.amplitude);
+  const period = Math.max(0.001, params.period);
+  const totalCycles = Math.max(1, Math.floor(params.totalCycles));
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * period;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + period, y: offset },
+      control: { x: startX + period / 2, y: offset + 2 * amplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
+// Damping is captured in the individual half-cycle peak values. Editing one
+// segment therefore does not recalculate or distort later portions of the ring.
+function buildDampedHalfCycleSegments(params: GenerateParams, groupId: string): LineSegment[] {
+  const amplitude = params.amplitude;
+  const period = Math.max(0.001, params.period);
+  const totalHalfCycles = Math.max(1, Math.floor(params.totalCycles)) * 2;
+  const offset = params.offset ?? 0;
+  const phaseOffset = period * params.phaseShift / 360;
+  const halfPeriod = period / 2;
+  const tau = Math.max(0.1, params.dampingTau ?? 2) * period;
+  const segments: LineSegment[] = [];
+
+  for (let index = 0; index < totalHalfCycles; index++) {
+    const startX = params.startTime + phaseOffset + index * halfPeriod;
+    const peakTime = (index + 0.5) * halfPeriod;
+    const peakAmplitude = amplitude * Math.exp(-peakTime / tau);
+    const sign = index % 2 === 0 ? 1 : -1;
+    segments.push({
+      id: generateId(),
+      start: { x: startX, y: offset },
+      end: { x: startX + halfPeriod, y: offset },
+      control: { x: startX + halfPeriod / 2, y: offset + sign * 2 * peakAmplitude },
+      type: 'curve',
+      groupId,
+    });
+  }
+  return segments;
+}
+
+interface TemplateTrace {
+  name: string;
+  color: string;
+  points: Point[];
+}
+
+const TEMPLATE_COLORS = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed'];
+
+function buildSquareTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, dutyCycle = 50, phaseShift = 0): Point[] {
+  const dutyTime = period * Math.max(0, Math.min(100, dutyCycle)) / 100;
+  const phaseOffset = period * phaseShift / 360;
+  const points: Point[] = [];
+  for (let cycle = 0; cycle < totalCycles; cycle++) {
+    const t = startTime + cycle * period + phaseOffset;
+    points.push({ x: t, y: offset - amplitude });
+    points.push({ x: t, y: offset + amplitude });
+    points.push({ x: t + dutyTime, y: offset + amplitude });
+    points.push({ x: t + dutyTime, y: offset - amplitude });
+    points.push({ x: t + period, y: offset - amplitude });
+  }
+  return points;
+}
+
+function buildSineTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, phaseDegrees = 0, cyclesPerPeriod = 1): Point[] {
+  const sampleCount = Math.max(2, Math.ceil(totalCycles * 40 * cyclesPerPeriod));
+  const totalTime = period * totalCycles;
+  const phase = phaseDegrees * Math.PI / 180;
+  return Array.from({ length: sampleCount + 1 }, (_, i) => {
+    const t = totalTime * i / sampleCount;
+    return {
+      x: startTime + t,
+      y: offset + amplitude * Math.sin(2 * Math.PI * cyclesPerPeriod * t / period + phase),
+    };
+  });
+}
+
+function buildRampTrace(period: number, totalCycles: number, startTime: number, amplitude: number, offset: number, dutyCycle: number, invert = false): Point[] {
+  const riseTime = period * Math.max(1, Math.min(99, dutyCycle)) / 100;
+  const low = offset - amplitude;
+  const high = offset + amplitude;
+  const points: Point[] = [];
+  for (let cycle = 0; cycle < totalCycles; cycle++) {
+    const t = startTime + cycle * period;
+    points.push({ x: t, y: invert ? high : low });
+    points.push({ x: t + riseTime, y: invert ? low : high });
+    points.push({ x: t + period, y: invert ? high : low });
+  }
+  return points;
+}
+
+function buildDcdcTemplate(template: DcdcTemplate, params: DcdcTemplateParams): TemplateTrace[] {
+  const amplitude = Math.abs(params.amplitude);
+  const period = Math.max(0.001, params.period);
+  const totalCycles = Math.max(1, Math.floor(params.totalCycles));
+  const { startTime, dutyCycle, phaseShift } = params;
+
+  if (template === 'llc') {
+    const ratio = Math.max(0.25, Math.min(4, params.resonantRatio));
+    return [
+      { name: 'LLC · vHB', color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 4, 50) },
+      { name: 'LLC · iLr', color: TEMPLATE_COLORS[1], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 1.5, -10, ratio) },
+      { name: 'LLC · iLm', color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.45, amplitude * -1, 50) },
+      { name: 'LLC · vCr', color: TEMPLATE_COLORS[3], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.7, amplitude * -3.5, -100, ratio) },
+      { name: 'LLC · iSec', color: TEMPLATE_COLORS[4], points: buildSineTrace(period, totalCycles, startTime, amplitude * 0.75, amplitude * -6, 0, ratio).map(p => ({ ...p, y: amplitude * -6 + Math.abs(p.y - amplitude * -6) })) },
+    ];
+  }
+
+  if (template === 'dab') {
+    return [
+      { name: 'DAB · vAB', color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 2.8) },
+      { name: 'DAB · vCD', color: TEMPLATE_COLORS[1], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, 0, 50, phaseShift) },
+      { name: 'DAB · iL', color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.7, amplitude * -2.8, 50) },
+    ];
+  }
+
+  const isBoost = template === 'boost';
+  const prefix = isBoost ? 'Boost' : 'Buck';
+  return [
+    { name: `${prefix} · vSW`, color: TEMPLATE_COLORS[0], points: buildSquareTrace(period, totalCycles, startTime, amplitude * 0.8, amplitude * 2.6, dutyCycle) },
+    { name: `${prefix} · iL`, color: TEMPLATE_COLORS[1], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.65, 0, isBoost ? 100 - dutyCycle : dutyCycle, isBoost) },
+    { name: `${prefix} · iC`, color: TEMPLATE_COLORS[2], points: buildRampTrace(period, totalCycles, startTime, amplitude * 0.45, amplitude * -2.6, dutyCycle, !isBoost) },
+  ];
 }
 
 export function useWaveform() {
@@ -472,7 +650,7 @@ export function useWaveform() {
     if (!group) return;
     
     const groupSegments = segments.filter(s => group.segments.includes(s.id));
-    if (groupSegments.length === 0) return;
+    if (groupSegments.length === 0 && !group.parametric) return;
     
     // Create the new group
     const newGroupId = generateId();
@@ -482,6 +660,7 @@ export function useWaveform() {
       color: COLORS[groups.length % COLORS.length],
       visible: true,
       segments: [],
+      ...(group.parametric ? { parametric: { ...group.parametric, startTime: group.parametric.startTime + axisConfig.xGridSize * 2 } } : {}),
     };
     
     // Copy segments (shifted right by two grid units)
@@ -527,6 +706,12 @@ export function useWaveform() {
         control: s.control ? { x: s.control.x + snapDeltaX, y: s.control.y + snapDeltaY } : undefined,
       };
     }));
+    if (group.parametric?.kind === 'sine') {
+      setGroups(prev => prev.map(item => item.id === groupId
+        ? { ...item, parametric: { ...item.parametric!, startTime: item.parametric!.startTime + snapDeltaX, offset: item.parametric!.offset + snapDeltaY } }
+        : item
+      ));
+    }
   }, [groups, axisConfig.xGridSize, axisConfig.yGridSize]);
 
   // Finish moving a group (saves history)
@@ -640,7 +825,9 @@ export function useWaveform() {
         const group = groups.find(g => g.id === tk.id);
         if (!group) return; // a referenced group was deleted; abort
 
-        const points: Point[] = [];
+        const points: Point[] = group.parametric?.kind === 'sine'
+          ? sampleParametricSine(group.parametric)
+          : [];
         segments.filter(s => group.segments.includes(s.id)).forEach(s => {
           points.push(s.start, s.end);
           if (s.control) points.push(s.control);
@@ -1016,14 +1203,15 @@ export function useWaveform() {
   const buildSVG = useCallback((): { svg: string; width: number; height: number } => {
     const padding = 60;
 
-    // Bounding box of the visible segments
+    // Bounding box of the visible segments and parametric waveforms
     const visibleSegments = segments.filter(s => {
       const g = groups.find(g => g.id === s.groupId);
       return !g || g.visible;
     });
+    const visibleParametric = groups.filter(group => group.visible && group.parametric?.kind === 'sine');
 
     let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // default range when there are no waveforms
-    if (visibleSegments.length > 0) {
+    if (visibleSegments.length > 0 || visibleParametric.length > 0) {
       xMin = Infinity; xMax = -Infinity; yMin = Infinity; yMax = -Infinity;
       visibleSegments.forEach(s => {
         const pts = s.control ? [s.start, s.end, s.control] : [s.start, s.end];
@@ -1031,6 +1219,13 @@ export function useWaveform() {
           xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x);
           yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y);
         });
+      });
+      visibleParametric.forEach(group => {
+        const sine = group.parametric!;
+        xMin = Math.min(xMin, sine.startTime);
+        xMax = Math.max(xMax, sine.startTime + sine.period * sine.totalCycles);
+        yMin = Math.min(yMin, sine.offset - Math.abs(sine.amplitude));
+        yMax = Math.max(yMax, sine.offset + Math.abs(sine.amplitude));
       });
       // Align outward to the major grid with one extra cell of padding
       xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
@@ -1065,6 +1260,11 @@ export function useWaveform() {
       }
       return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} L ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
     };
+    const generateParametricPath = (sine: ParametricSine): string =>
+      sampleParametricSine(sine).map((point, index) => {
+        const svgPoint = worldToSVG(point);
+        return `${index === 0 ? 'M' : 'L'} ${svgPoint.x.toFixed(2)} ${svgPoint.y.toFixed(2)}`;
+      }).join(' ');
 
 
 
@@ -1186,7 +1386,7 @@ export function useWaveform() {
     groups.forEach((group, gi) => {
       if (!group.visible) return;
       const groupSegments = segments.filter(s => s.groupId === group.id);
-      if (groupSegments.length === 0) return;
+      if (groupSegments.length === 0 && !group.parametric) return;
 
       // Per-group style: width, dash pattern, opacity
       const width = group.lineWidth ?? 2;
@@ -1196,9 +1396,13 @@ export function useWaveform() {
       const opacityAttr = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
 
       svg += `    <g id="wave-group-${gi + 1}">\n      <title>${escapeXml(group.name)}</title>\n`;
-      groupSegments.forEach(segment => {
-        svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
-      });
+      if (group.parametric?.kind === 'sine' && groupSegments.length === 0) {
+        svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+      } else {
+        groupSegments.forEach(segment => {
+          svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+        });
+      }
       svg += `    </g>\n`;
     });
 
@@ -1362,7 +1566,15 @@ export function useWaveform() {
 
     const primaryId = generateId();
     const primaryColor = customColor || getNextColor();
-    const primarySegs = toSegments(points, primaryId);
+    // Smooth basic waveforms use one editable curve per half-period, rather
+    // than dense samples or one globally coupled parametric object.
+    const primarySegs = type === 'sine'
+      ? buildSineHalfCycleSegments(params, primaryId)
+      : type === 'rectified'
+        ? buildRectifiedHalfCycleSegments(params, primaryId)
+        : type === 'damped'
+          ? buildDampedHalfCycleSegments(params, primaryId)
+          : toSegments(points, primaryId);
     const newGroups: WaveformGroup[] = [{
       id: primaryId,
       name: groupName,
@@ -1404,6 +1616,67 @@ export function useWaveform() {
       setTimeout(saveToHistory, 0);
     }
   }, [saveToHistory, getNextColor, groups]);
+
+  const updateParametricSine = useCallback((groupId: string, next: ParametricSine, saveHistory = true) => {
+    const group = groups.find(g => g.id === groupId);
+    if (!group || group.parametric?.kind !== 'sine') return;
+
+    const params: GenerateParams = {
+      amplitude: next.amplitude,
+      period: Math.max(0.001, next.period),
+      dutyCycle: 50,
+      totalCycles: Math.max(1, Math.floor(next.totalCycles)),
+      startTime: next.startTime,
+      phaseShift: next.phaseShift,
+      offset: next.offset,
+    };
+    const oldIds = new Set(group.segments);
+    const normalized: ParametricSine = {
+      ...next,
+      period: params.period,
+      totalCycles: params.totalCycles,
+    };
+
+    setSegments(prev => prev.filter(segment => !oldIds.has(segment.id)));
+    setGroups(prev => prev.map(item => item.id === groupId
+      ? { ...item, segments: [], parametric: normalized }
+      : item
+    ));
+    if (saveHistory) setTimeout(saveToHistory, 0);
+  }, [groups, saveToHistory]);
+
+  // Create a vertically separated, time-aligned set of common DC/DC paper waveforms.
+  // The traces are deliberately normalized reference shapes, not a circuit simulator.
+  const generateDcdcTemplate = useCallback((template: DcdcTemplate, params: DcdcTemplateParams) => {
+    const traces = buildDcdcTemplate(template, params);
+    if (traces.length === 0) return;
+
+    const newGroups: WaveformGroup[] = [];
+    const newSegments: LineSegment[] = [];
+    traces.forEach((trace) => {
+      const groupId = generateId();
+      const traceSegments: LineSegment[] = [];
+      for (let i = 0; i < trace.points.length - 1; i++) {
+        const start = trace.points[i];
+        const end = trace.points[i + 1];
+        if (start.x === end.x && start.y === end.y) continue;
+        traceSegments.push({ id: generateId(), start, end, type: 'line', groupId });
+      }
+      newSegments.push(...traceSegments);
+      newGroups.push({
+        id: groupId,
+        name: trace.name,
+        color: trace.color,
+        visible: true,
+        segments: traceSegments.map(segment => segment.id),
+      });
+    });
+
+    setSegments(prev => [...prev, ...newSegments]);
+    setGroups(prev => [...prev, ...newGroups]);
+    setSelectedGroup(newGroups[0].id);
+    setTimeout(saveToHistory, 0);
+  }, [saveToHistory]);
 
   return {
     segments,
@@ -1482,6 +1755,8 @@ export function useWaveform() {
     downloadJSON,
     importData,
     generateWaveform,
+    updateParametricSine,
+    generateDcdcTemplate,
     extendGroupMultiPhase,
   };
 }

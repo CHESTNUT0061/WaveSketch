@@ -228,8 +228,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
 
-      // Draw the control point (edit mode)
-      if (mode === 'edit') {
+      // Draw control points only for the selected group. Otherwise a generated
+      // multi-curve waveform would expose unrelated handles across the canvas.
+      if (mode === 'edit' && selectedGroup === segment.groupId) {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
@@ -256,7 +257,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // Edit mode: endpoints/midpoints only for the selected group (drag the midpoint to create a curve)
-    if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup) {
+    if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup && !group?.parametric) {
       // Endpoints
       ctx.fillStyle = segment.id === activeSegment ? '#10b981' : '#3b82f6';
       ctx.beginPath();
@@ -280,6 +281,50 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.stroke();
     }
   }, [groups, activeSegment, mode, selectedGroup, worldToScreen]);
+
+  // Parametric sine groups are rendered directly rather than as a collection of
+  // editable segments. This keeps the stored model and the edit surface simple.
+  const drawParametricSine = useCallback((ctx: CanvasRenderingContext2D, group: WaveformGroup, canvas: HTMLCanvasElement) => {
+    const sine = group.parametric;
+    if (!sine || sine.kind !== 'sine' || !group.visible || group.segments.length > 0) return;
+
+    const samples = Math.max(80, Math.ceil(sine.totalCycles * 80));
+    ctx.strokeStyle = group.color;
+    ctx.lineWidth = group.lineWidth ?? 2;
+    ctx.globalAlpha = group.opacity ?? 1;
+    ctx.setLineDash(LINE_DASH[group.lineStyle ?? 'solid']);
+    ctx.beginPath();
+    for (let i = 0; i <= samples; i++) {
+      const elapsed = sine.period * sine.totalCycles * i / samples;
+      const point = worldToScreen({
+        x: sine.startTime + elapsed,
+        y: sine.offset + sine.amplitude * Math.sin(2 * Math.PI * elapsed / sine.period + sine.phaseShift * Math.PI / 180),
+      }, canvas);
+      if (i === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    if (mode !== 'edit' || selectedGroup !== group.id) return;
+    const crestTime = sine.startTime + sine.period * (90 - sine.phaseShift) / 360;
+    const handles = [
+      { point: { x: sine.startTime, y: sine.offset }, color: '#2563eb' }, // move / offset
+      { point: { x: crestTime, y: sine.offset + sine.amplitude }, color: '#dc2626' }, // amplitude
+      { point: { x: sine.startTime + sine.period, y: sine.offset }, color: '#059669' }, // period
+    ];
+    handles.forEach(({ point, color }) => {
+      const screen = worldToScreen(point, canvas);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+  }, [mode, selectedGroup, worldToScreen]);
 
   const drawPreview = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     if (!isDrawing || !drawStart || !currentMouse) return;
@@ -356,6 +401,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     
     // Draw segments
     segments.forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments));
+
+    // Draw true parametric waveforms after ordinary segments.
+    groups.forEach(group => drawParametricSine(ctx, group, canvas));
     
     // Draw the copy preview
     drawCopyPreview(ctx, canvas);
@@ -379,7 +427,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.strokeRect(x, y, w, h);
       ctx.setLineDash([]);
     }
-  }, [segments, groups, selectedSegments, axisConfig, activeSegment, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawCopyPreview, drawPreview, canvasSize, selectionRect, worldToScreen]);
+  }, [segments, groups, selectedSegments, axisConfig, activeSegment, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawParametricSine, drawCopyPreview, drawPreview, canvasSize, selectionRect, worldToScreen]);
 
   React.useEffect(() => {
     const updateSize = () => {

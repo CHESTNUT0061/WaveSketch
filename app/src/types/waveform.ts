@@ -14,6 +14,18 @@ export interface LineSegment {
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
+// A generated sine remains a single editable concept even though its rendered
+// representation is sampled into line segments for Canvas/SVG compatibility.
+export interface ParametricSine {
+  kind: 'sine';
+  amplitude: number;
+  period: number;
+  totalCycles: number;
+  startTime: number;
+  phaseShift: number;
+  offset: number;
+}
+
 export interface WaveformGroup {
   id: string;
   name: string;
@@ -24,6 +36,7 @@ export interface WaveformGroup {
   lineWidth?: number;
   lineStyle?: LineStyle;
   opacity?: number; // 0..1
+  parametric?: ParametricSine;
 }
 
 // Dash patterns shared by the canvas renderer and the SVG export
