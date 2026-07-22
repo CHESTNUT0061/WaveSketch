@@ -32,7 +32,7 @@ export interface WaveformGroup {
   color: string;
   visible: boolean;
   segments: string[]; // segment ids
-  // Optional per-group rendering style (defaults: width 2, solid, opacity 1)
+  // Optional per-group rendering style (defaults: width 3, solid, opacity 1)
   lineWidth?: number;
   lineStyle?: LineStyle;
   opacity?: number; // 0..1
@@ -45,6 +45,8 @@ export const LINE_DASH: Record<LineStyle, number[]> = {
   dashed: [8, 5],
   dotted: [2, 4],
 };
+
+export const DEFAULT_LINE_WIDTH = 3;
 
 export interface AxisConfig {
   xUnit: string;
@@ -71,5 +73,38 @@ export type CalcRpnToken =
   | { t: 'g'; id: string }
   | { t: 'c'; v: number }
   | { t: 'op'; v: '+' | '-' | '×' };
+
+export type LogicOperator = 'AND' | 'OR' | 'NOT';
+
+export type LogicRpnToken =
+  | { t: 'g'; id: string }
+  | { t: 'op'; v: LogicOperator };
+
+export type DigitalWaveformIssue =
+  | 'empty'
+  | 'parametric'
+  | 'curve'
+  | 'diagonal'
+  | 'levels'
+  | 'disconnected'
+  | 'time';
+
+export interface DigitalWaveformAnalysis {
+  eligible: boolean;
+  issue?: DigitalWaveformIssue;
+  low?: number;
+  high?: number;
+  startX?: number;
+  endX?: number;
+  points?: Point[];
+}
+
+export interface AxisCursor {
+  id: string;
+  axis: 'x' | 'y';
+  value: number;
+  label: string;
+  visible: boolean;
+}
 
 export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';

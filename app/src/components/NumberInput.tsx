@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 interface NumberInputProps extends Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'> {
   value: number;
   onValueChange: (v: number) => void;
+  onValueCommit?: (v: number) => void;
   min?: number;
   max?: number;
   integer?: boolean;
@@ -16,6 +17,7 @@ interface NumberInputProps extends Omit<React.ComponentProps<typeof Input>, 'val
 export const NumberInput: React.FC<NumberInputProps> = ({
   value,
   onValueChange,
+  onValueCommit,
   min,
   max,
   integer = false,
@@ -58,9 +60,11 @@ export const NumberInput: React.FC<NumberInputProps> = ({
       lastEmitted.current = v;
       onValueChange(v);
       setText(String(v));
+      onValueCommit?.(v);
     } else {
       // Unparseable leftover ("", "-", "."): restore the last valid value
       setText(String(lastEmitted.current));
+      onValueCommit?.(lastEmitted.current);
     }
   };
 

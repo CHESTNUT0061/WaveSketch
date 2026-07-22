@@ -15,6 +15,18 @@ const S = {
   toolEdit: { zh: '编辑', en: 'Edit' },
   toolDelete: { zh: '删除', en: 'Delete' },
   toolMoveGroup: { zh: '移组', en: 'Move group' },
+  cursorTitle: { zh: 'Cursor', en: 'Cursor' },
+  cursorManager: { zh: 'Cursor 管理', en: 'Cursor manager' },
+  addXCursor: { zh: '新建 X', en: 'New X' },
+  addYCursor: { zh: '新建 Y', en: 'New Y' },
+  noCursors: { zh: '暂无 Cursor', en: 'No cursors yet' },
+  exportCursors: { zh: '导出 Cursor', en: 'Export cursors' },
+  cursorCoordinate: { zh: '坐标', en: 'coordinate' },
+  cursorShow: { zh: '显示 Cursor', en: 'Show cursor' },
+  cursorHide: { zh: '隐藏 Cursor', en: 'Hide cursor' },
+  cursorLocate: { zh: '定位到 Cursor', en: 'Center on cursor' },
+  cursorDelete: { zh: '删除 Cursor', en: 'Delete cursor' },
+  cursorDragHint: { zh: '拖动虚线；Shift 吸附小网格', en: 'Drag the dashed line; Shift snaps to minor grid' },
 
   // Top-right actions
   actionImport: { zh: '导入', en: 'Import' },
@@ -75,6 +87,7 @@ const S = {
   titleRenameDbl: { zh: '双击重命名', en: 'Double-click to rename' },
   titleChangeColor: { zh: '修改颜色', en: 'Change color' },
   titleDuplicate: { zh: '复制组', en: 'Duplicate group' },
+  titleReorderGroup: { zh: '拖动排序；方向键可调整', en: 'Drag to reorder; arrow keys also work' },
 
   // Group style panel
   presetColors: { zh: '预设颜色', en: 'Presets' },
@@ -174,6 +187,8 @@ const S = {
 
   // Calculator
   calcTitle: { zh: '波形计算器', en: 'Waveform Calculator' },
+  calcArithmetic: { zh: '算术', en: 'Arithmetic' },
+  calcLogic: { zh: '逻辑', en: 'Logic' },
   calcPlaceholder: { zh: '点击按钮构建算式...', en: 'Build an expression with the buttons...' },
   constPlaceholder: { zh: '常数', en: 'Constant' },
   insertConst: { zh: '插入常数', en: 'Insert constant' },
@@ -190,6 +205,17 @@ const S = {
   errUnclosed: { zh: '括号未闭合', en: 'Unclosed parenthesis' },
   errIncomplete: { zh: '表达式不完整', en: 'Incomplete expression' },
   errInvalid: { zh: '表达式无效', en: 'Invalid expression' },
+  logicEligibilityHint: { zh: '仅可选择由连续水平/垂直直线构成的二电平波形；输出继承表达式中第一个波形的低/高电平。', en: 'Only continuous two-level waveforms made of horizontal/vertical lines are eligible; output inherits the first waveform’s low/high levels.' },
+  logicInvalidGroup: { zh: '“{name}”已不是合法二值波形', en: '"{name}" is no longer a valid digital waveform' },
+  logicIssueEmpty: { zh: '波形为空或缺少线段', en: 'The waveform is empty or has missing segments' },
+  logicIssueParametric: { zh: '参数化波形不支持逻辑运算', en: 'Parametric waveforms are not supported for logic' },
+  logicIssueCurve: { zh: '含有曲线线段', en: 'Contains curved segments' },
+  logicIssueDiagonal: { zh: '含有斜线线段', en: 'Contains diagonal segments' },
+  logicIssueLevels: { zh: '必须恰好只有两个电平', en: 'Must contain exactly two levels' },
+  logicIssueDisconnected: { zh: '线段不连续', en: 'Segments are disconnected' },
+  logicIssueTime: { zh: '时间轴顺序无效', en: 'Invalid time-axis order' },
+  hoverGridPoint: { zh: '格点', en: 'Grid' },
+  hoverWaveform: { zh: '波形', en: 'Waveform' },
 } as const;
 
 export type StringKey = keyof typeof S;

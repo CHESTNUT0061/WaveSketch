@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,12 +11,14 @@ import {
   Edit2,
   Check,
   Calculator,
-  Wand2
+  Wand2,
+  GripVertical
 } from 'lucide-react';
 import { WaveformCalculator } from './WaveformCalculator';
 import { WaveformGenerator, type WaveformType, type DcdcTemplate, type DcdcTemplateParams } from './WaveformGenerator';
 import { NumberInput } from './NumberInput';
-import type { WaveformGroup, LineSegment, CalcRpnToken, LineStyle } from '@/types/waveform';
+import { DEFAULT_LINE_WIDTH, type WaveformGroup, type LineSegment, type CalcRpnToken, type LogicRpnToken, type LineStyle } from '@/types/waveform';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useI18n } from '@/i18n';
 
 // Style payload applied from the group style panel
@@ -32,7 +34,6 @@ interface ColorPickerProps {
   group: WaveformGroup;
   onApply: (style: GroupStyle) => void;
   onCancel: () => void;
-  position: { x: number; y: number };
 }
 
 const PRESET_COLORS = [
@@ -40,11 +41,11 @@ const PRESET_COLORS = [
   '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
 ];
 
-const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel, position }) => {
+const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) => {
   const { t } = useI18n();
   const currentColor = group.color;
   const [customColor, setCustomColor] = useState(currentColor);
-  const [lineWidth, setLineWidth] = useState(group.lineWidth ?? 2);
+  const [lineWidth, setLineWidth] = useState(group.lineWidth ?? DEFAULT_LINE_WIDTH);
   const [lineStyle, setLineStyle] = useState<LineStyle>(group.lineStyle ?? 'solid');
   const [opacityPct, setOpacityPct] = useState(Math.round((group.opacity ?? 1) * 100));
   const [rgb, setRgb] = useState(() => {
@@ -87,12 +88,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel, pos
   };
 
   return (
-    <div 
-      className="fixed z-[100] p-3 bg-white rounded-lg shadow-xl border border-gray-200 w-56"
-      style={{ 
-        left: position.x, 
-        top: position.y
-      }}
+    <div
       onClick={(e) => e.stopPropagation()}
     >
       {/* Preset colors */}
@@ -243,15 +239,18 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel, pos
 
 interface ToolbarProps {
   groups: WaveformGroup[];
+  segments: LineSegment[];
   selectedGroup: string | null;
   onCreateGroup: (name: string) => void;
   onDeleteGroup: (id: string) => void;
   onToggleGroupVisibility: (id: string) => void;
   onSelectGroup: (id: string | null) => void;
   onCalculateWaveforms: (expression: string, rpn: CalcRpnToken[]) => void;
+  onCalculateLogic: (expression: string, rpn: LogicRpnToken[]) => void;
   onClearAll: () => void;
   onDuplicateGroup: (groupId: string) => void;
   onRenameGroup: (groupId: string, newName: string) => void;
+  onReorderGroups: (activeGroupId: string, targetGroupId: string) => void;
   onChangeGroupStyle: (groupId: string, style: GroupStyle) => void;
   selectedSegments: Set<string>;
   onGenerateWaveform: (
@@ -284,15 +283,18 @@ type TabType = 'generator' | 'calculator';
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   groups,
+  segments,
   selectedGroup,
   onCreateGroup,
   onDeleteGroup,
   onToggleGroupVisibility,
   onSelectGroup,
   onCalculateWaveforms,
+  onCalculateLogic,
   onClearAll,
   onDuplicateGroup,
   onRenameGroup,
+  onReorderGroups,
   onChangeGroupStyle,
   selectedSegments,
   onGenerateWaveform,
@@ -307,19 +309,119 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [colorPickerGroup, setColorPickerGroup] = useState<string | null>(null);
-  const [colorPickerPos, setColorPickerPos] = useState({ x: 0, y: 0 });
   const [activeTab, setActiveTab] = useState<TabType>('generator');
+  const [isNarrowViewport, setIsNarrowViewport] = useState(() => window.innerWidth < 640);
+  const [draggingGroup, setDraggingGroup] = useState<string | null>(null);
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
+  const dragOverGroupRef = React.useRef<string | null>(null);
+  const groupListRef = React.useRef<HTMLDivElement>(null);
+  const groupDragRef = React.useRef<{
+    groupId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null>(null);
 
-  const handleOpenColorPicker = (groupId: string, e: React.MouseEvent) => {
-    setColorPickerGroup(groupId);
-    setColorPickerPos({ x: e.clientX, y: e.clientY });
-  };
+  useEffect(() => {
+    const updateViewportMode = () => setIsNarrowViewport(window.innerWidth < 640);
+    window.addEventListener('resize', updateViewportMode);
+    return () => window.removeEventListener('resize', updateViewportMode);
+  }, []);
+
+  useEffect(() => () => {
+    if (groupDragRef.current?.timer) clearTimeout(groupDragRef.current.timer);
+  }, []);
 
   const handleCreateGroup = () => {
     if (newGroupName.trim()) {
       onCreateGroup(newGroupName.trim());
       setNewGroupName('');
     }
+  };
+
+  const activateGroupDrag = (groupId: string) => {
+    if (!groupDragRef.current || groupDragRef.current.groupId !== groupId) return;
+    groupDragRef.current.active = true;
+    setDraggingGroup(groupId);
+    setDragOverGroup(groupId);
+    dragOverGroupRef.current = groupId;
+  };
+
+  const clearGroupDrag = () => {
+    if (groupDragRef.current?.timer) clearTimeout(groupDragRef.current.timer);
+    groupDragRef.current = null;
+    setDraggingGroup(null);
+    setDragOverGroup(null);
+    dragOverGroupRef.current = null;
+  };
+
+  const handleGroupPointerDown = (groupId: string, event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const pending = {
+      groupId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      timer: null as ReturnType<typeof setTimeout> | null,
+    };
+    groupDragRef.current = pending;
+    if (event.pointerType === 'touch') {
+      pending.timer = setTimeout(() => activateGroupDrag(groupId), 250);
+    }
+  };
+
+  const handleGroupPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const pending = groupDragRef.current;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
+    if (!pending.active) {
+      if (event.pointerType === 'touch') {
+        if (distance > 8) clearGroupDrag();
+        return;
+      }
+      if (distance < 4) return;
+      activateGroupDrag(pending.groupId);
+    }
+    event.preventDefault();
+    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-waveform-group-id]');
+    const targetId = row?.dataset.waveformGroupId;
+    if (targetId) {
+      setDragOverGroup(targetId);
+      dragOverGroupRef.current = targetId;
+    }
+    const list = groupListRef.current;
+    if (list) {
+      const rect = list.getBoundingClientRect();
+      if (event.clientY < rect.top + 28) list.scrollBy({ top: -18 });
+      else if (event.clientY > rect.bottom - 28) list.scrollBy({ top: 18 });
+    }
+  };
+
+  const handleGroupPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const pending = groupDragRef.current;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    const targetId = dragOverGroupRef.current;
+    if (pending.active && targetId && targetId !== pending.groupId) {
+      onReorderGroups(pending.groupId, targetId);
+    }
+    clearGroupDrag();
+  };
+
+  const handleGroupKeyDown = (groupId: string, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const index = groups.findIndex(group => group.id === groupId);
+    let targetIndex = index;
+    if (event.key === 'ArrowUp') targetIndex = Math.max(0, index - 1);
+    else if (event.key === 'ArrowDown') targetIndex = Math.min(groups.length - 1, index + 1);
+    else if (event.key === 'Home') targetIndex = 0;
+    else if (event.key === 'End') targetIndex = groups.length - 1;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (targetIndex !== index) onReorderGroups(groupId, groups[targetIndex].id);
   };
 
   return (
@@ -341,19 +443,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Plus className="w-4 h-4" />
           </Button>
         </div>
-        <div className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded p-2 bg-white mb-2">
+        <div ref={groupListRef} className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded p-2 bg-white mb-2">
           {groups.length === 0 && (
             <div className="text-xs text-gray-400 text-center py-2">{t('noGroups')}</div>
           )}
           {groups.map((group) => (
             <div
               key={group.id}
-              className={`flex items-center justify-between p-2 rounded text-sm ${
-                selectedGroup === group.id ? 'bg-blue-100' : 'hover:bg-gray-50'
+              data-waveform-group-id={group.id}
+              className={`flex items-center justify-between p-2 rounded text-sm transition-colors ${
+                dragOverGroup === group.id && draggingGroup !== group.id
+                  ? 'ring-2 ring-blue-400 bg-blue-50'
+                  : selectedGroup === group.id ? 'bg-blue-100' : 'hover:bg-gray-50'
+              } ${draggingGroup === group.id ? 'opacity-50' : ''
               }`}
               onClick={() => onSelectGroup(group.id === selectedGroup ? null : group.id)}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
+                <button
+                  type="button"
+                  className="h-6 w-5 -ml-1 flex shrink-0 touch-none cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:cursor-grabbing"
+                  aria-label={`${t('titleReorderGroup')}：${group.name}`}
+                  title={t('titleReorderGroup')}
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => handleGroupPointerDown(group.id, event)}
+                  onPointerMove={handleGroupPointerMove}
+                  onPointerUp={handleGroupPointerUp}
+                  onPointerCancel={clearGroupDrag}
+                  onKeyDown={(event) => handleGroupKeyDown(group.id, event)}
+                >
+                  <GripVertical className="h-4 w-4" />
+                </button>
                 <div
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: group.color }}
@@ -403,33 +523,42 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </div>
               <div className="flex gap-1 items-center">
                 {/* Color picker */}
-                {colorPickerGroup === group.id ? (
-                  <ColorPicker
-                    group={group}
-                    onApply={(style) => {
-                      onChangeGroupStyle(group.id, style);
-                      setColorPickerGroup(null);
-                    }}
-                    onCancel={() => setColorPickerGroup(null)}
-                    position={colorPickerPos}
-                  />
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenColorPicker(group.id, e);
-                    }}
-                    title={t('titleGroupStyle')}
+                <Popover
+                  open={colorPickerGroup === group.id}
+                  onOpenChange={(open) => setColorPickerGroup(open ? group.id : null)}
+                >
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0"
+                      onClick={(e) => e.stopPropagation()}
+                      title={t('titleGroupStyle')}
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full border border-gray-300"
+                        style={{ backgroundColor: group.color }}
+                      />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side={isNarrowViewport ? 'bottom' : 'left'}
+                    align="start"
+                    sideOffset={8}
+                    collisionPadding={8}
+                    className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[var(--radix-popover-content-available-height)] overflow-x-hidden overflow-y-auto p-3"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <div 
-                      className="w-3 h-3 rounded-full border border-gray-300"
-                      style={{ backgroundColor: group.color }}
+                    <ColorPicker
+                      group={group}
+                      onApply={(style) => {
+                        onChangeGroupStyle(group.id, style);
+                        setColorPickerGroup(null);
+                      }}
+                      onCancel={() => setColorPickerGroup(null)}
                     />
-                  </Button>
-                )}
+                  </PopoverContent>
+                </Popover>
                 {editingGroup !== group.id && (
                   <Button
                     size="sm"
@@ -562,7 +691,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <WaveformGenerator onGenerate={onGenerateWaveform} onGenerateTemplate={onGenerateTemplate} groups={groups} onExtendMultiPhase={onExtendMultiPhase} />
         )}
         {activeTab === 'calculator' && (
-          <WaveformCalculator groups={groups} onCalculate={onCalculateWaveforms} />
+          <WaveformCalculator groups={groups} segments={segments} onCalculate={onCalculateWaveforms} onCalculateLogic={onCalculateLogic} />
         )}
       </div>
     </div>

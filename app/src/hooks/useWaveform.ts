@@ -1,7 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, Viewport, CalcRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
-import { LINE_DASH } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, Viewport, CalcRpnToken, LogicRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
+import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
 import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
+import { calculateLogicPoints } from '@/lib/digitalLogic';
+import { layoutSvgLegend, renderSvgLegend } from '@/lib/svgLegend';
+import { groupsBottomToTop, reorderGroupList } from '@/lib/waveformOrder';
+import { nextCursorLabel, renderSvgCursors, sanitizeAxisCursors } from '@/lib/axisCursor';
+import { deleteSegmentsAndEmptyGroups } from '@/lib/waveformDeletion';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -30,10 +35,12 @@ const escapeXml = (s: string) =>
 
 // localStorage autosave
 const DRAFT_KEY = 'waveform-draft-v1';
+const CURSOR_EXPORT_KEY = 'wavesketch-export-cursors';
 
 interface Draft {
   segments: LineSegment[];
   groups: WaveformGroup[];
+  cursors?: AxisCursor[];
   axisConfig?: Partial<AxisConfig>;
   viewport?: Partial<Viewport> & { scale?: number }; // `scale` = legacy uniform-zoom field
 }
@@ -71,6 +78,12 @@ const COLORS = [
 interface HistoryState {
   segments: LineSegment[];
   groups: WaveformGroup[];
+  cursors: AxisCursor[];
+}
+
+interface SvgBuildOptions {
+  includeLegend?: boolean;
+  includeCursors?: boolean;
 }
 
 // Waveform generator parameters
@@ -198,6 +211,41 @@ function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Poin
       y: sine.offset + sine.amplitude * Math.sin(2 * Math.PI * elapsed / sine.period + phase),
     };
   });
+}
+
+// One-sided interpolation at x (points sorted by x; returns 0 outside the range).
+function interpolateSide(
+  x: number,
+  points: Point[],
+  side: 'left' | 'right',
+  preserveBoundary = false,
+): number {
+  const n = points.length;
+  if (n === 0) return 0;
+  const eps = 1e-9;
+  let runStart = -1;
+  let runEnd = -1;
+  for (let index = 0; index < n; index++) {
+    if (Math.abs(points[index].x - x) <= eps) {
+      if (runStart === -1) runStart = index;
+      runEnd = index;
+    } else if (points[index].x > x + eps) break;
+  }
+  if (runStart !== -1) {
+    const atStart = Math.abs(x - points[0].x) <= eps;
+    const atEnd = Math.abs(x - points[n - 1].x) <= eps;
+    if (!preserveBoundary && ((atStart && side === 'left') || (atEnd && side === 'right'))) return 0;
+    return side === 'left' ? points[runStart].y : points[runEnd].y;
+  }
+  for (let index = 0; index < n - 1; index++) {
+    if (x > points[index].x && x < points[index + 1].x) {
+      const dx = points[index + 1].x - points[index].x;
+      if (dx < eps) continue;
+      const t = (x - points[index].x) / dx;
+      return points[index].y + t * (points[index + 1].y - points[index].y);
+    }
+  }
+  return 0;
 }
 
 // One editable quadratic Bezier per half-period. With equal endpoint levels and
@@ -370,9 +418,17 @@ export function useWaveform() {
 
   const [segments, setSegments] = useState<LineSegment[]>(draft?.segments ?? []);
   const [groups, setGroups] = useState<WaveformGroup[]>(draft?.groups ?? []);
+  const [cursors, setCursors] = useState<AxisCursor[]>(() => sanitizeAxisCursors(draft?.cursors));
+  const [includeCursorsInExport, setIncludeCursorsInExport] = useState(() => {
+    try { return localStorage.getItem(CURSOR_EXPORT_KEY) !== 'false'; } catch { return true; }
+  });
 
   // Undo/redo history - kept in refs to avoid stale closures; the restored draft is the undo baseline
-  const historyRef = useRef<HistoryState[]>([{ segments: draft?.segments ?? [], groups: draft?.groups ?? [] }]);
+  const historyRef = useRef<HistoryState[]>([{
+    segments: draft?.segments ?? [],
+    groups: draft?.groups ?? [],
+    cursors: sanitizeAxisCursors(draft?.cursors),
+  }]);
   const historyIndexRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -380,10 +436,14 @@ export function useWaveform() {
   // Refs mirroring the latest state
   const segmentsRef = useRef<LineSegment[]>([]);
   const groupsRef = useRef<WaveformGroup[]>([]);
+  const cursorsRef = useRef<AxisCursor[]>([]);
   
-  // Keep refs in sync with state
-  segmentsRef.current = segments;
-  groupsRef.current = groups;
+  // Keep refs in sync with state without mutating refs during render.
+  useEffect(() => {
+    segmentsRef.current = segments;
+    groupsRef.current = groups;
+    cursorsRef.current = cursors;
+  }, [segments, groups, cursors]);
   
   // Update undo/redo availability
   const updateHistoryState = useCallback(() => {
@@ -401,13 +461,16 @@ export function useWaveform() {
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, axisConfig, viewport }));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, cursors, axisConfig, viewport }));
       } catch {
         // Fail silently if storage is full or disabled
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [segments, groups, axisConfig, viewport]);
+  }, [segments, groups, cursors, axisConfig, viewport]);
+  useEffect(() => {
+    try { localStorage.setItem(CURSOR_EXPORT_KEY, String(includeCursorsInExport)); } catch { /* ignore */ }
+  }, [includeCursorsInExport]);
   const [mode, setMode] = useState<ToolMode>('select'); // select is the default tool
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
@@ -432,14 +495,8 @@ export function useWaveform() {
   const [copyPreviewOrigin, setCopyPreviewOrigin] = useState<Point | null>(null); // paste preview reference origin
   const [clipboardSegments, setClipboardSegments] = useState<LineSegment[]>([]); // clipboard segments (Ctrl+C)
 
-  // Save the current state as a new history step
-  const saveToHistory = useCallback(() => {
-    // Read the latest state via refs to avoid stale closures
-    const newState: HistoryState = {
-      segments: JSON.parse(JSON.stringify(segmentsRef.current)),
-      groups: JSON.parse(JSON.stringify(groupsRef.current)),
-    };
-    
+  const pushHistoryState = useCallback((state: HistoryState) => {
+    const newState: HistoryState = JSON.parse(JSON.stringify(state));
     // Drop any redo entries beyond the current index
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
     newHistory.push(newState);
@@ -454,13 +511,26 @@ export function useWaveform() {
     updateHistoryState();
   }, [updateHistoryState]);
 
+  // Save the current state as a new history step
+  const saveToHistory = useCallback(() => {
+    pushHistoryState({
+      segments: segmentsRef.current,
+      groups: groupsRef.current,
+      cursors: cursorsRef.current,
+    });
+  }, [pushHistoryState]);
+
   // Undo
   const undo = useCallback(() => {
     if (historyIndexRef.current > 0) {
       historyIndexRef.current -= 1;
       const prevState = historyRef.current[historyIndexRef.current];
-      setSegments(JSON.parse(JSON.stringify(prevState.segments)));
-      setGroups(JSON.parse(JSON.stringify(prevState.groups)));
+      segmentsRef.current = JSON.parse(JSON.stringify(prevState.segments));
+      groupsRef.current = JSON.parse(JSON.stringify(prevState.groups));
+      cursorsRef.current = JSON.parse(JSON.stringify(prevState.cursors));
+      setSegments(segmentsRef.current);
+      setGroups(groupsRef.current);
+      setCursors(cursorsRef.current);
       updateHistoryState();
     }
   }, [updateHistoryState]);
@@ -470,8 +540,12 @@ export function useWaveform() {
     if (historyIndexRef.current < historyRef.current.length - 1) {
       historyIndexRef.current += 1;
       const nextState = historyRef.current[historyIndexRef.current];
-      setSegments(JSON.parse(JSON.stringify(nextState.segments)));
-      setGroups(JSON.parse(JSON.stringify(nextState.groups)));
+      segmentsRef.current = JSON.parse(JSON.stringify(nextState.segments));
+      groupsRef.current = JSON.parse(JSON.stringify(nextState.groups));
+      cursorsRef.current = JSON.parse(JSON.stringify(nextState.cursors));
+      setSegments(segmentsRef.current);
+      setGroups(groupsRef.current);
+      setCursors(cursorsRef.current);
       updateHistoryState();
     }
   }, [updateHistoryState]);
@@ -500,6 +574,56 @@ export function useWaveform() {
       y: Math.round(point.y / axisConfig.yGridSize) * axisConfig.yGridSize,
     };
   }, [axisConfig]);
+
+  const createCursor = useCallback((axis: AxisCursor['axis']) => {
+    const cursor: AxisCursor = {
+      id: generateId(),
+      axis,
+      value: axis === 'x' ? viewport.centerX : viewport.centerY,
+      label: nextCursorLabel(axis, cursorsRef.current),
+      visible: true,
+    };
+    const nextCursors = [...cursorsRef.current, cursor];
+    cursorsRef.current = nextCursors;
+    setCursors(nextCursors);
+    pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: nextCursors });
+    return cursor.id;
+  }, [viewport.centerX, viewport.centerY, pushHistoryState]);
+
+  const updateCursor = useCallback((cursorId: string, value: number, saveHistory = false) => {
+    if (!Number.isFinite(value)) return;
+    const nextCursors = cursorsRef.current.map(cursor => cursor.id === cursorId ? { ...cursor, value } : cursor);
+    cursorsRef.current = nextCursors;
+    setCursors(nextCursors);
+    if (saveHistory) pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: nextCursors });
+  }, [pushHistoryState]);
+
+  const commitCursorChange = useCallback(() => {
+    pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: cursorsRef.current });
+  }, [pushHistoryState]);
+
+  const toggleCursorVisibility = useCallback((cursorId: string) => {
+    const nextCursors = cursorsRef.current.map(cursor => cursor.id === cursorId ? { ...cursor, visible: !cursor.visible } : cursor);
+    cursorsRef.current = nextCursors;
+    setCursors(nextCursors);
+    pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: nextCursors });
+  }, [pushHistoryState]);
+
+  const deleteCursor = useCallback((cursorId: string) => {
+    const nextCursors = cursorsRef.current.filter(cursor => cursor.id !== cursorId);
+    if (nextCursors.length === cursorsRef.current.length) return;
+    cursorsRef.current = nextCursors;
+    setCursors(nextCursors);
+    pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: nextCursors });
+  }, [pushHistoryState]);
+
+  const focusCursor = useCallback((cursorId: string) => {
+    const cursor = cursorsRef.current.find(item => item.id === cursorId);
+    if (!cursor) return;
+    setViewport(previous => cursor.axis === 'x'
+      ? { ...previous, centerX: cursor.value }
+      : { ...previous, centerY: cursor.value });
+  }, []);
 
   // Add a segment (internal, no history entry)
   const addSegmentInternal = useCallback((start: Point, end: Point, type: 'line' | 'curve' = 'line', targetGroupId?: string): string => {
@@ -567,18 +691,24 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [saveToHistory]);
 
-  // Delete a segment
+  const applySegmentDeletion = useCallback((segmentIds: ReadonlySet<string>) => {
+    if (segmentIds.size === 0) return;
+    const result = deleteSegmentsAndEmptyGroups(segmentsRef.current, groupsRef.current, segmentIds);
+    if (result.segments.length === segmentsRef.current.length) return;
+    segmentsRef.current = result.segments;
+    groupsRef.current = result.groups;
+    setSegments(result.segments);
+    setGroups(result.groups);
+    if (selectedGroup && result.removedGroupIds.includes(selectedGroup)) setSelectedGroup(null);
+    setSelectedSegments(previous => new Set([...previous].filter(id => !segmentIds.has(id))));
+    setActiveSegment(previous => previous && segmentIds.has(previous) ? null : previous);
+    pushHistoryState({ segments: result.segments, groups: result.groups, cursors: cursorsRef.current });
+  }, [pushHistoryState, selectedGroup]);
+
+  // Delete a segment and remove its group if this deletion made it empty.
   const deleteSegment = useCallback((segmentId: string) => {
-    setSegments(prev => prev.filter(s => s.id !== segmentId));
-    setGroups(prev => prev.map(g => ({
-      ...g,
-      segments: g.segments.filter(id => id !== segmentId)
-    })));
-    if (activeSegment === segmentId) {
-      setActiveSegment(null);
-    }
-    setTimeout(saveToHistory, 0);
-  }, [saveToHistory, activeSegment]);
+    applySegmentDeletion(new Set([segmentId]));
+  }, [applySegmentDeletion]);
 
   // Next available color
   const getNextColor = useCallback((): string => {
@@ -603,9 +733,12 @@ export function useWaveform() {
       visible: true,
       segments: [],
     };
-    setGroups(prev => [...prev, newGroup]);
+    const nextGroups = [...groupsRef.current, newGroup];
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    pushHistoryState({ segments: segmentsRef.current, groups: nextGroups, cursors: cursorsRef.current });
     return newGroup.id;
-  }, [getNextColor]);
+  }, [getNextColor, pushHistoryState]);
 
   // Change a group's color
   const changeGroupColor = useCallback((groupId: string, color: string) => {
@@ -643,6 +776,13 @@ export function useWaveform() {
       g.id === groupId ? { ...g, name: newName.trim() } : g
     ));
   }, []);
+
+  // The list is stored top-first. Reordering the array therefore updates the
+  // panel, layer stack, exports, autosave, and JSON without a schema change.
+  const reorderGroups = useCallback((activeGroupId: string, targetGroupId: string) => {
+    setGroups(prev => reorderGroupList(prev, activeGroupId, targetGroupId));
+    setTimeout(saveToHistory, 0);
+  }, [saveToHistory]);
 
   // Duplicate a group
   const duplicateGroup = useCallback((groupId: string) => {
@@ -936,53 +1076,32 @@ export function useWaveform() {
     setTimeout(saveToHistory, 0);
   }, [groups, segments, getNextColor, saveToHistory]);
 
-  // One-sided interpolation at x (points sorted by x; returns 0 outside the range).
-  // At an internal start/end boundary, the outside side must remain zero. Treating
-  // the endpoint value as that side would make a non-zero curve + 0 interpolate
-  // into a ramp. `preserveBoundary` is used only for the outermost calculation
-  // boundary, where retaining the original finite waveform shape is preferable.
-  function interpolateSide(
-    x: number,
-    points: Point[],
-    side: 'left' | 'right',
-    preserveBoundary = false,
-  ): number {
-    const n = points.length;
-    if (n === 0) return 0;
-    const eps = 1e-9;
+  const calculateLogicExpression = useCallback((expression: string, rpn: LogicRpnToken[]) => {
+    const result = calculateLogicPoints(rpn, groups, segments);
+    if (!result.ok || result.points.length < 2) return;
 
-    // Run of points whose x coincides with the query
-    let runStart = -1;
-    let runEnd = -1; // inclusive
-    for (let i = 0; i < n; i++) {
-      if (Math.abs(points[i].x - x) <= eps) {
-        if (runStart === -1) runStart = i;
-        runEnd = i;
-      } else if (points[i].x > x + eps) {
-        break;
-      }
+    const newGroupId = generateId();
+    const newSegments: LineSegment[] = [];
+    for (let index = 0; index < result.points.length - 1; index++) {
+      const start = result.points[index];
+      const end = result.points[index + 1];
+      if (Math.abs(start.x - end.x) <= 1e-9 && Math.abs(start.y - end.y) <= 1e-9) continue;
+      newSegments.push({ id: generateId(), start, end, type: 'line', groupId: newGroupId });
     }
-    if (runStart !== -1) {
-      const atStart = Math.abs(x - points[0].x) <= eps;
-      const atEnd = Math.abs(x - points[n - 1].x) <= eps;
-      if (!preserveBoundary && ((atStart && side === 'left') || (atEnd && side === 'right'))) {
-        return 0;
-      }
-      return side === 'left' ? points[runStart].y : points[runEnd].y;
-    }
+    if (newSegments.length === 0) return;
 
-    // No exact point: plain linear interpolation between bracketing neighbors
-    for (let i = 0; i < n - 1; i++) {
-      if (x > points[i].x && x < points[i + 1].x) {
-        const dx = points[i + 1].x - points[i].x;
-        if (dx < eps) continue;
-        const t = (x - points[i].x) / dx;
-        return points[i].y + t * (points[i + 1].y - points[i].y);
-      }
-    }
-
-    return 0; // outside the data range
-  }
+    const newGroup: WaveformGroup = {
+      id: newGroupId,
+      name: expression,
+      color: getNextColor(),
+      visible: true,
+      segments: newSegments.map(segment => segment.id),
+    };
+    setSegments(previous => [...previous, ...newSegments]);
+    setGroups(previous => [...previous, newGroup]);
+    setSelectedGroup(newGroupId);
+    setTimeout(saveToHistory, 0);
+  }, [groups, segments, getNextColor, saveToHistory]);
 
   // Toggle a segment's selection
   const toggleSegmentSelection = useCallback((segmentId: string, isMultiSelect: boolean) => {
@@ -1028,16 +1147,8 @@ export function useWaveform() {
   // Delete all selected segments (Delete/Backspace)
   const deleteSelectedSegments = useCallback(() => {
     if (selectedSegments.size === 0) return;
-
-    setSegments(prev => prev.filter(s => !selectedSegments.has(s.id)));
-    setGroups(prev => prev.map(g => ({
-      ...g,
-      segments: g.segments.filter(id => !selectedSegments.has(id)),
-    })));
-    setSelectedSegments(new Set());
-    setActiveSegment(null);
-    setTimeout(saveToHistory, 0);
-  }, [selectedSegments, saveToHistory]);
+    applySegmentDeletion(selectedSegments);
+  }, [selectedSegments, applySegmentDeletion]);
 
   // Move the selected segments by a delta (move, not copy)
   const moveSelectedSegments = useCallback((deltaX: number, deltaY: number) => {
@@ -1191,16 +1302,21 @@ export function useWaveform() {
 
   // Clear all
   const clearAll = useCallback(() => {
+    segmentsRef.current = [];
+    groupsRef.current = [];
+    cursorsRef.current = [];
     setSegments([]);
     setGroups([]);
+    setCursors([]);
     setSelectedGroup(null);
     setActiveSegment(null);
-    setTimeout(saveToHistory, 0);
     setSelectedSegments(new Set());
-  }, [saveToHistory]);
+    pushHistoryState({ segments: [], groups: [], cursors: [] });
+  }, [pushHistoryState]);
 
   // Build the export SVG (bounds auto-fit the visible waveforms, aligned outward to the major grid)
-  const buildSVG = useCallback((): { svg: string; width: number; height: number } => {
+  const buildSVG = useCallback((options: SvgBuildOptions = {}): { svg: string; width: number; height: number } => {
+    const { includeLegend = false, includeCursors = false } = options;
     const padding = 60;
 
     // Bounding box of the visible segments and parametric waveforms
@@ -1239,14 +1355,20 @@ export function useWaveform() {
     // Pixels per world unit: 40 by default, reduced for large ranges to keep the export under ~2000px
     const pxPerUnit = Math.min(40, 1880 / xRange, 1880 / yRange);
     const width = Math.round(2 * padding + xRange * pxPerUnit);
-    const height = Math.round(2 * padding + yRange * pxPerUnit);
+    const plotHeight = Math.round(2 * padding + yRange * pxPerUnit);
     const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    const chartHeight = plotHeight - 2 * padding;
+    const legendGroups = includeLegend
+      ? groups.filter(group => group.visible && (group.segments.some(id => segments.some(segment => segment.id === id)) || !!group.parametric))
+      : [];
+    const legendLayout = layoutSvgLegend(legendGroups, chartWidth);
+    const legendGap = legendLayout.height > 0 ? 24 : 0;
+    const height = plotHeight + legendGap + legendLayout.height;
 
     // Coordinate transform
     const worldToSVG = (point: Point): Point => ({
       x: padding + ((point.x - xMin) / xRange) * chartWidth,
-      y: height - padding - ((point.y - yMin) / yRange) * chartHeight,
+      y: plotHeight - padding - ((point.y - yMin) / yRange) * chartHeight,
     });
 
     // Build an SVG path
@@ -1295,7 +1417,7 @@ export function useWaveform() {
       const x = i * axisConfig.xGridSize;
       if (isMajor(x, axisConfig.xMajorGridSize)) continue;
       const screenX = worldToSVG({ x, y: 0 }).x;
-      svg += `    <line ${MINOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${MINOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${plotHeight - padding}"/>\n`;
     }
 
     // Horizontal minor grid lines
@@ -1317,7 +1439,7 @@ export function useWaveform() {
     const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
     for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
       const screenX = worldToSVG({ x: i * axisConfig.xMajorGridSize, y: 0 }).x;
-      svg += `    <line ${MAJOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${MAJOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${plotHeight - padding}"/>\n`;
     }
 
     // Horizontal major grid lines
@@ -1337,14 +1459,14 @@ export function useWaveform() {
     // Axes are drawn only when the origin falls inside the range; otherwise tick labels hug the edge
     const hasXAxis = yMin <= 0 && yMax >= 0;
     const hasYAxis = xMin <= 0 && xMax >= 0;
-    const originY = hasXAxis ? worldToSVG({ x: 0, y: 0 }).y : height - padding;
+    const originY = hasXAxis ? worldToSVG({ x: 0, y: 0 }).y : plotHeight - padding;
     const originX = hasYAxis ? worldToSVG({ x: 0, y: 0 }).x : padding;
 
     if (hasXAxis) {
       svg += `    <line ${AXIS_STYLE} x1="${padding}" y1="${originY.toFixed(2)}" x2="${width - padding}" y2="${originY.toFixed(2)}"/>\n`;
     }
     if (hasYAxis) {
-      svg += `    <line ${AXIS_STYLE} x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${height - padding}"/>\n`;
+      svg += `    <line ${AXIS_STYLE} x1="${originX.toFixed(2)}" y1="${padding}" x2="${originX.toFixed(2)}" y2="${plotHeight - padding}"/>\n`;
     }
 
     svg += `  </g>
@@ -1383,19 +1505,31 @@ export function useWaveform() {
   <g id="waveforms">
 `;
 
-    groups.forEach((group, gi) => {
+    // Orphaned legacy segments sit below every named group.
+    const orphanSegments = segments.filter(s => !groups.some(g => g.id === s.groupId));
+    if (orphanSegments.length > 0) {
+      svg += `    <g id="wave-group-ungrouped">\n`;
+      orphanSegments.forEach(segment => {
+        svg += `      <path d="${generatePath(segment)}" stroke="#3b82f6" stroke-width="${DEFAULT_LINE_WIDTH}" fill="none"/>\n`;
+      });
+      svg += `    </g>\n`;
+    }
+
+    // groups[0] is topmost, so SVG paints the list in reverse order.
+    groupsBottomToTop(groups).forEach((group) => {
       if (!group.visible) return;
       const groupSegments = segments.filter(s => s.groupId === group.id);
       if (groupSegments.length === 0 && !group.parametric) return;
 
       // Per-group style: width, dash pattern, opacity
-      const width = group.lineWidth ?? 2;
+      const width = group.lineWidth ?? DEFAULT_LINE_WIDTH;
       const dash = LINE_DASH[group.lineStyle ?? 'solid'];
       const dashAttr = dash.length ? ` stroke-dasharray="${dash.join(',')}"` : '';
       const opacity = group.opacity ?? 1;
       const opacityAttr = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
 
-      svg += `    <g id="wave-group-${gi + 1}">\n      <title>${escapeXml(group.name)}</title>\n`;
+      const groupNumber = groups.findIndex(item => item.id === group.id) + 1;
+      svg += `    <g id="wave-group-${groupNumber}">\n      <title>${escapeXml(group.name)}</title>\n`;
       if (group.parametric?.kind === 'sine' && groupSegments.length === 0) {
         svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
       } else {
@@ -1406,23 +1540,22 @@ export function useWaveform() {
       svg += `    </g>\n`;
     });
 
-    // Fallback for segments that belong to no group
-    const orphanSegments = segments.filter(s => !groups.some(g => g.id === s.groupId));
-    if (orphanSegments.length > 0) {
-      svg += `    <g id="wave-group-ungrouped">\n`;
-      orphanSegments.forEach(segment => {
-        svg += `      <path d="${generatePath(segment)}" stroke="#3b82f6" stroke-width="2" fill="none"/>\n`;
+    svg += `  </g>\n`;
+
+    if (includeCursors) {
+      svg += renderSvgCursors(cursors, {
+        xMin, xMax, yMin, yMax, padding, width, plotHeight, axisConfig,
+        worldToSvg: worldToSVG,
       });
-      svg += `    </g>\n`;
     }
 
-    svg += `  </g>
-</svg>`;
+    svg += renderSvgLegend(legendLayout, padding, plotHeight);
+    svg += `</svg>`;
 
     return { svg, width, height };
-  }, [segments, groups, axisConfig]);
+  }, [segments, groups, cursors, axisConfig]);
 
-  const exportToSVG = useCallback((): string => buildSVG().svg, [buildSVG]);
+  const exportToSVG = useCallback((): string => buildSVG({ includeLegend: true, includeCursors: includeCursorsInExport }).svg, [buildSVG, includeCursorsInExport]);
 
   // Download as SVG
   const downloadSVG = useCallback((filename: string = 'waveform.svg') => {
@@ -1440,7 +1573,7 @@ export function useWaveform() {
 
   // Download as PNG (hi-res, 3x render by default)
   const downloadPNG = useCallback((filename: string = 'waveform.png', scaleFactor: number = 3) => {
-    const { svg, width, height } = buildSVG();
+    const { svg, width, height } = buildSVG({ includeLegend: true, includeCursors: includeCursorsInExport });
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const svgUrl = URL.createObjectURL(svgBlob);
 
@@ -1469,7 +1602,7 @@ export function useWaveform() {
     };
     img.onerror = () => URL.revokeObjectURL(svgUrl);
     img.src = svgUrl;
-  }, [buildSVG]);
+  }, [buildSVG, includeCursorsInExport]);
 
   // Export the waveform data as a JSON object
   const exportData = useCallback(() => {
@@ -1480,8 +1613,9 @@ export function useWaveform() {
       viewport,
       groups,
       segments,
+      cursors,
     };
-  }, [axisConfig, viewport, groups, segments]);
+  }, [axisConfig, viewport, groups, segments, cursors]);
 
   // Download as JSON
   const downloadJSON = useCallback((filename: string = 'waveform.json') => {
@@ -1504,6 +1638,7 @@ export function useWaveform() {
     viewport?: Partial<Viewport> & { scale?: number };
     groups?: WaveformGroup[];
     segments?: LineSegment[];
+    cursors?: unknown;
   }) => {
     // Import the axis config if present, keeping only known fields
     if (data.axisConfig) {
@@ -1525,17 +1660,22 @@ export function useWaveform() {
     }
     
     // Import groups and segments
-    if (data.groups && data.segments) {
-      setGroups(data.groups);
-      setSegments(data.segments);
-    }
+    const nextGroups = data.groups && data.segments ? data.groups : groupsRef.current;
+    const nextSegments = data.groups && data.segments ? data.segments : segmentsRef.current;
+    const nextCursors = sanitizeAxisCursors(data.cursors);
+    groupsRef.current = nextGroups;
+    segmentsRef.current = nextSegments;
+    cursorsRef.current = nextCursors;
+    setGroups(nextGroups);
+    setSegments(nextSegments);
+    setCursors(nextCursors);
     
     // Clear selection state
     setSelectedGroup(null);
     setSelectedSegments(new Set());
     setActiveSegment(null);
-    setTimeout(saveToHistory, 0);
-  }, [saveToHistory]);
+    pushHistoryState({ segments: nextSegments, groups: nextGroups, cursors: nextCursors });
+  }, [pushHistoryState]);
 
   // Generate common waveforms.
   // For square/trapezoid, params.complementary additionally creates the complementary
@@ -1681,6 +1821,8 @@ export function useWaveform() {
   return {
     segments,
     groups,
+    cursors,
+    includeCursorsInExport,
     selectedSegments,
     axisConfig,
     viewport,
@@ -1712,6 +1854,7 @@ export function useWaveform() {
     setIsDrawing,
     setDrawStart,
     setCurrentMouse,
+    setIncludeCursorsInExport,
     setDraggingControl,
     setMovingGroup,
     setMoveStartPoint,
@@ -1720,6 +1863,12 @@ export function useWaveform() {
     worldToScreen,
     screenToWorld,
     snapToGrid,
+    createCursor,
+    updateCursor,
+    commitCursorChange,
+    toggleCursorVisibility,
+    deleteCursor,
+    focusCursor,
     addSegment,
     updateControlPoint,
     addControlPoint,
@@ -1727,6 +1876,7 @@ export function useWaveform() {
     createGroup,
     deleteGroup,
     renameGroup,
+    reorderGroups,
     changeGroupColor,
     changeGroupStyle,
     duplicateGroup,
@@ -1747,6 +1897,7 @@ export function useWaveform() {
     cancelCopyPreview,
     pasteClipboard,
     calculateExpression,
+    calculateLogicExpression,
     clearAll,
     undo,
     redo,

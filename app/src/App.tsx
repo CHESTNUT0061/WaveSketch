@@ -9,12 +9,28 @@ import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Dow
 import type { ParametricSine, Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
+import { CursorManager } from '@/components/CursorManager';
+import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
+import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
 
 // Site links
 const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
 const WPD_URL = 'https://apps.automeris.io/wpd4/';
 
 type SineHandle = 'move' | 'amplitude' | 'period';
+
+interface HoverInfo {
+  x: number;
+  y: number;
+  gridPoint?: Point;
+  waveforms: { id?: string; name: string; color: string }[];
+}
+
+const formatGridValue = (value: number, step: number) => {
+  const text = String(step);
+  const decimals = Math.min(6, text.includes('.') ? text.split('.')[1].length : 0);
+  return value.toFixed(decimals);
+};
 
 function getSineHandles(sine: ParametricSine): { handle: SineHandle; point: Point }[] {
   return [
@@ -46,10 +62,11 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
     const tipHeight = tooltipRef.current.offsetHeight;
 
     let x = rect.left + rect.width / 2;
-    const y = position === 'bottom' ? rect.bottom + 8 : rect.top - tipHeight - 8;
+    let y = position === 'bottom' ? rect.bottom + 8 : rect.top - tipHeight - 8;
 
     // Clamp horizontally within the screen (8px margin)
     x = Math.max(tipWidth / 2 + 8, Math.min(window.innerWidth - tipWidth / 2 - 8, x));
+    y = Math.max(8, Math.min(window.innerHeight - tipHeight - 8, y));
 
     setTooltipPos({ x, y });
   }, [show, position, tooltip]);
@@ -89,11 +106,30 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
   );
 };
 
+interface ToolButtonProps {
+  toolMode: ToolMode;
+  label: string;
+  icon: React.ElementType;
+  tooltip: string;
+  active: boolean;
+  onSelect: (mode: ToolMode) => void;
+}
+
+const ToolButton: React.FC<ToolButtonProps> = ({ toolMode, label, icon: Icon, tooltip, active, onSelect }) => (
+  <TooltipButton tooltip={tooltip}>
+    <Button variant={active ? 'default' : 'outline'} size="sm" onClick={() => onSelect(toolMode)} className="flex items-center gap-1">
+      <Icon className="w-4 h-4" />{label}
+    </Button>
+  </TooltipButton>
+);
+
 function App() {
   const { t, lang, setLang } = useI18n();
   const {
     segments,
     groups,
+    cursors,
+    includeCursorsInExport,
     axisConfig,
     viewport,
     setViewport,
@@ -123,12 +159,19 @@ function App() {
     setIsDrawing,
     setDrawStart,
     setCurrentMouse,
+    setIncludeCursorsInExport,
     setDraggingControl,
     setMovingGroup,
     setMoveStartPoint,
     setDragStartPoint,
     screenToWorld,
     snapToGrid,
+    createCursor,
+    updateCursor,
+    commitCursorChange,
+    toggleCursorVisibility,
+    deleteCursor,
+    focusCursor,
     addSegment,
     updateControlPoint,
     addControlPoint,
@@ -136,6 +179,7 @@ function App() {
     createGroup,
     deleteGroup,
     renameGroup,
+    reorderGroups,
     changeGroupStyle,
     duplicateGroup,
     moveGroup,
@@ -158,6 +202,7 @@ function App() {
     pasteClipboard,
     selectedSegments,
     calculateExpression,
+    calculateLogicExpression,
     clearAll,
     undo,
     redo,
@@ -176,8 +221,15 @@ function App() {
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ segmentId: string; point: 'start' | 'end' } | null>(null);
   const [draggingMidpoint, setDraggingMidpoint] = useState<string | null>(null); // dragging a midpoint to create a curve
   const [draggingSineHandle, setDraggingSineHandle] = useState<{ groupId: string; handle: SineHandle } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
+  const [hoverCardPosition, setHoverCardPosition] = useState({ x: 8, y: 8 });
+  const hoverCardRef = React.useRef<HTMLDivElement>(null);
+  const hoverFrameRef = React.useRef<number | null>(null);
   // Whether this drag actually changed segments (decides if history is saved on mouse-up)
   const dragChangedRef = React.useRef(false);
+  const [draggingCursorId, setDraggingCursorId] = useState<string | null>(null);
+  const [hoveredCursorAxis, setHoveredCursorAxis] = useState<'x' | 'y' | null>(null);
+  const cursorDragChangedRef = React.useRef(false);
 
   // Rubber-band state (dragging empty space in select mode, unsnapped world coords)
   const [marquee, setMarquee] = useState<{ start: Point; end: Point } | null>(null);
@@ -320,12 +372,12 @@ function App() {
       try {
         const data = JSON.parse(e.target?.result as string);
         importData(data);
-      } catch (error) {
+      } catch {
         alert(t('importError'));
       }
     };
     reader.readAsText(file);
-  }, [importData]);
+  }, [importData, t]);
 
   // Zoom handler: factor is the multiplier; when screenPos (canvas coords) is given,
   // zoom around that point. `axis` restricts the zoom to one axis
@@ -426,6 +478,18 @@ function App() {
     };
     return screenToWorld(screenPoint, canvas);
   }, [canvasRef, screenToWorld]);
+
+  const checkCursorHit = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return findAxisCursorHit(
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      cursors,
+      point => worldToScreen(point, canvas),
+      8,
+    );
+  }, [canvasRef, cursors, worldToScreen]);
 
   // Hit-test control points (selected group only)
   const checkControlPointHit = useCallback((e: React.MouseEvent): string | null => {
@@ -528,8 +592,9 @@ function App() {
     return null;
   }, [segments, selectedGroup, worldToScreen, canvasRef]);
 
-  // Hit-test segments (used for delete/select)
-  const checkSegmentHit = useCallback((e: React.MouseEvent): string | null => {
+  // Hit-test selectable/deletable segments. A selected-group restriction is
+  // strict: a miss never falls through to another group.
+  const checkSegmentHit = useCallback((e: React.MouseEvent, onlyGroupId?: string | null): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     
@@ -539,42 +604,67 @@ function App() {
       y: e.clientY - rect.top,
     };
     
-    let closestSegment: string | null = null;
-    let closestDist = Infinity;
-    
-    for (const segment of segments) {
-      const start = worldToScreen(segment.start, canvas);
-      const end = worldToScreen(segment.end, canvas);
-      
-      const dist = pointToLineDistance(clickPoint, start, end);
-      
-      if (dist < 10 && dist < closestDist) {
-        closestDist = dist;
-        closestSegment = segment.id;
-      }
-    }
-    return closestSegment;
-  }, [segments, worldToScreen, canvasRef]);
+    return findSegmentHit(clickPoint, groups, segments, point => worldToScreen(point, canvas), 10, onlyGroupId)?.segmentId ?? null;
+  }, [segments, groups, worldToScreen, canvasRef]);
 
-  // Distance from a point to a segment
-  const pointToLineDistance = (p: Point, a: Point, b: Point): number => {
-    const ab = { x: b.x - a.x, y: b.y - a.y };
-    const ap = { x: p.x - a.x, y: p.y - a.y };
-    const abLen = Math.sqrt(ab.x * ab.x + ab.y * ab.y);
-    
-    if (abLen === 0) return Math.sqrt(ap.x * ap.x + ap.y * ap.y);
-    
-    const t = Math.max(0, Math.min(1, (ap.x * ab.x + ap.y * ab.y) / (abLen * abLen)));
-    const closest = {
-      x: a.x + t * ab.x,
-      y: a.y + t * ab.y,
-    };
-    
-    return Math.sqrt(Math.pow(p.x - closest.x, 2) + Math.pow(p.y - closest.y, 2));
-  };
+  const scheduleHoverUpdate = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+    hoverFrameRef.current = requestAnimationFrame(() => {
+      const worldPoint = screenToWorld(screenPoint, canvas);
+      const snapped = snapToGrid(worldPoint);
+      const snappedScreen = worldToScreen(snapped, canvas);
+      const gridPoint = Math.hypot(screenPoint.x - snappedScreen.x, screenPoint.y - snappedScreen.y) <= 8 ? snapped : undefined;
+      const hits = findWaveformHits(screenPoint, groups, segments, point => worldToScreen(point, canvas), 8);
+      if (!gridPoint && hits.length === 0) {
+        setHoverInfo(null);
+      } else {
+        setHoverInfo({
+          x: screenPoint.x,
+          y: screenPoint.y,
+          gridPoint,
+          waveforms: hits.map(hit => ({ id: hit.groupId, name: hit.groupName, color: hit.color })),
+        });
+      }
+      hoverFrameRef.current = null;
+    });
+  }, [canvasRef, groups, segments, screenToWorld, snapToGrid, worldToScreen]);
+
+  React.useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const card = hoverCardRef.current;
+    if (!hoverInfo || !canvas || !card) return;
+    const margin = 8;
+    setHoverCardPosition({
+      x: Math.max(margin, Math.min(hoverInfo.x + 14, canvas.clientWidth - card.offsetWidth - margin)),
+      y: Math.max(margin, Math.min(hoverInfo.y + 14, canvas.clientHeight - card.offsetHeight - margin)),
+    });
+  }, [hoverInfo, canvasRef]);
+
+  const finishCursorDrag = useCallback(() => {
+    if (!draggingCursorId) return false;
+    if (cursorDragChangedRef.current) commitCursorChange();
+    cursorDragChangedRef.current = false;
+    setDraggingCursorId(null);
+    setHoveredCursorAxis(null);
+    return true;
+  }, [draggingCursorId, commitCursorChange]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+    hoverFrameRef.current = null;
+    setHoverInfo(null);
+    finishCursorDrag();
+    setHoveredCursorAxis(null);
+    if (mode === 'select' || mode === 'delete') setActiveSegment(null);
+  }, [mode, setActiveSegment, finishCursorDrag]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    setHoverInfo(null);
 
     // Canvas panning: middle button or Space+left in any mode, or plain left drag in pan mode
     if (e.button === 1 || ((spaceHeld || mode === 'pan') && e.button === 0)) {
@@ -588,6 +678,15 @@ function App() {
       return;
     }
     if (e.button !== 0) return; // ignore right-clicks
+
+    const cursorHit = checkCursorHit(e);
+    if (cursorHit) {
+      cursorDragChangedRef.current = false;
+      setDraggingCursorId(cursorHit.id);
+      setHoveredCursorAxis(cursorHit.axis);
+      setActiveSegment(null);
+      return;
+    }
 
     if (mode === 'draw') {
       const worldPos = getMouseWorldPos(e);
@@ -665,7 +764,7 @@ function App() {
       // Clicking empty space clears the selection
       clearSegmentSelection();
     } else if (mode === 'delete') {
-      const segmentId = checkSegmentHit(e);
+      const segmentId = checkSegmentHit(e, selectedGroup);
       if (segmentId) {
         deleteSegment(segmentId);
       }
@@ -707,7 +806,7 @@ function App() {
         setMarquee({ start: rawPos, end: rawPos });
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, deleteSegment, selectedGroup, groups, worldToScreen, canvasRef, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, checkCursorHit, deleteSegment, selectedGroup, groups, worldToScreen, canvasRef, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY, setActiveSegment]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Canvas panning in progress
@@ -726,6 +825,36 @@ function App() {
     const worldPos = getMouseWorldPos(e);
     const snapped = snapToGrid(worldPos);
     setCurrentMouse(snapped);
+
+    if (draggingCursorId) {
+      const cursor = cursors.find(item => item.id === draggingCursorId);
+      if (!cursor) {
+        setDraggingCursorId(null);
+        return;
+      }
+      const rawValue = cursor.axis === 'x' ? worldPos.x : worldPos.y;
+      const nextValue = e.shiftKey ? snapCursorValue(rawValue, cursor.axis, axisConfig) : rawValue;
+      if (Math.abs(nextValue - cursor.value) > 1e-12) {
+        updateCursor(cursor.id, nextValue);
+        cursorDragChangedRef.current = true;
+      }
+      setHoverInfo(null);
+      setHoveredCursorAxis(cursor.axis);
+      return;
+    }
+
+    const hasActiveInteraction = Boolean(isDrawing || draggingSineHandle || draggingControl || draggingMidpoint || movingGroup || draggingEndpoint || marquee || isDraggingSelected);
+    if (!hasActiveInteraction) {
+      const cursorHit = checkCursorHit(e);
+      setHoveredCursorAxis(cursorHit?.axis ?? null);
+      if (cursorHit) {
+        setHoverInfo(null);
+        setActiveSegment(null);
+        return;
+      }
+    } else {
+      setHoveredCursorAxis(null);
+    }
     
     if (isDrawing && drawStart) {
       // the draw preview updates automatically
@@ -789,20 +918,21 @@ function App() {
         }));
       }
     } else if (mode === 'delete') {
-      const segmentId = checkSegmentHit(e);
+      const segmentId = checkSegmentHit(e, selectedGroup);
       setActiveSegment(segmentId);
     } else if (mode === 'select') {
       // Select mode - highlight the hovered segment
       if (!isCopyPreview) {
         const segmentId = checkSegmentHit(e);
         setActiveSegment(segmentId);
+        if (!isDraggingSelected && !marquee) scheduleHoverUpdate(e);
       } else {
         // Paste preview - update the offset
         updateCopyPreviewOffset(snapped);
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
     }
-  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingSineHandle, groups, axisConfig.xGridSize, axisConfig.yGridSize, updateParametricSine, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, checkSegmentHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee]);
+  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingSineHandle, groups, axisConfig, updateParametricSine, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, selectedGroup, checkSegmentHit, checkCursorHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee, scheduleHoverUpdate, draggingCursorId, cursors, updateCursor]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
@@ -810,6 +940,7 @@ function App() {
       panStartRef.current = null;
       return;
     }
+    if (finishCursorDrag()) return;
     if (marquee) {
       // Rubber-band end: counts as a selection only if the rect exceeds a few pixels, otherwise it's a plain click
       const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scaleX;
@@ -874,7 +1005,7 @@ function App() {
       }
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingSineHandle, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingSineHandle, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect, finishCursorDrag]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -903,20 +1034,6 @@ function App() {
     export: t('tipExport'),
   };
 
-  const ToolButton = ({ toolMode, label, icon: Icon }: { toolMode: ToolMode; label: string; icon: React.ElementType }) => (
-    <TooltipButton tooltip={TOOLTIPS[toolMode]}>
-      <Button
-        variant={mode === toolMode ? 'default' : 'outline'}
-        size="sm"
-        onClick={() => setMode(toolMode)}
-        className="flex items-center gap-1"
-      >
-        <Icon className="w-4 h-4" />
-        {label}
-      </Button>
-    </TooltipButton>
-  );
-
   return (
 
     <div className="min-h-screen bg-gray-100 p-2 sm:p-4">
@@ -939,11 +1056,23 @@ function App() {
         {/* Toolbar: wraps on narrow screens */}
         <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
           <div className="flex flex-wrap gap-2">
-            <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} />
-            <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} />
-            <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} />
-            <ToolButton toolMode="delete" label={t('toolDelete')} icon={Trash2} />
-            <ToolButton toolMode="moveGroup" label={t('toolMoveGroup')} icon={GripHorizontal} />
+            <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} tooltip={TOOLTIPS.select} active={mode === 'select'} onSelect={setMode} />
+            <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} tooltip={TOOLTIPS.draw} active={mode === 'draw'} onSelect={setMode} />
+            <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} tooltip={TOOLTIPS.edit} active={mode === 'edit'} onSelect={setMode} />
+            <ToolButton toolMode="delete" label={t('toolDelete')} icon={Trash2} tooltip={TOOLTIPS.delete} active={mode === 'delete'} onSelect={setMode} />
+            <ToolButton toolMode="moveGroup" label={t('toolMoveGroup')} icon={GripHorizontal} tooltip={TOOLTIPS.moveGroup} active={mode === 'moveGroup'} onSelect={setMode} />
+            <CursorManager
+              cursors={cursors}
+              axisConfig={axisConfig}
+              includeCursorsInExport={includeCursorsInExport}
+              onCreate={createCursor}
+              onUpdate={updateCursor}
+              onCommit={commitCursorChange}
+              onToggleVisibility={toggleCursorVisibility}
+              onFocus={focusCursor}
+              onDelete={deleteCursor}
+              onIncludeInExportChange={setIncludeCursorsInExport}
+            />
             <TooltipButton tooltip={t('tipCopy')}>
               <Button variant="outline" size="sm" onClick={copyToClipboard} disabled={selectedSegments.size === 0} className="flex items-center gap-1">
                 <Copy className="w-4 h-4" />{t('btnCopy')}
@@ -1039,9 +1168,36 @@ function App() {
                 </div>
               )}
 
+              {mode === 'select' && hoverInfo && (
+                <div
+                  ref={hoverCardRef}
+                  className="absolute z-20 pointer-events-none min-w-36 max-w-64 max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white/95 px-2.5 py-2 text-xs text-gray-700 shadow-lg backdrop-blur-sm"
+                  style={{ left: hoverCardPosition.x, top: hoverCardPosition.y }}
+                >
+                  {hoverInfo.gridPoint && (
+                    <div className="font-mono whitespace-nowrap">
+                      <span className="font-sans text-gray-400 mr-1">{t('hoverGridPoint')}</span>
+                      X={formatGridValue(hoverInfo.gridPoint.x, axisConfig.xGridSize)}{axisConfig.xUnit ? ` ${axisConfig.xUnit}` : ''}, Y={formatGridValue(hoverInfo.gridPoint.y, axisConfig.yGridSize)}{axisConfig.yUnit ? ` ${axisConfig.yUnit}` : ''}
+                    </div>
+                  )}
+                  {hoverInfo.waveforms.length > 0 && (
+                    <div className={hoverInfo.gridPoint ? 'mt-1' : ''}>
+                      <div className="text-gray-400 mb-0.5">{t('hoverWaveform')}</div>
+                      {hoverInfo.waveforms.map((waveform, index) => (
+                        <div key={waveform.id ?? `ungrouped-${index}`} className="flex items-center gap-1.5 py-0.5">
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: waveform.color }} />
+                          <span className="truncate font-medium">{waveform.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <WaveformCanvas
                 segments={segments}
                 groups={groups}
+                cursors={cursors}
                 selectedSegments={selectedSegments}
                 axisConfig={axisConfig}
                 mode={mode}
@@ -1059,10 +1215,12 @@ function App() {
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseLeave}
                 onDoubleClick={handleDoubleClick}
                 onZoomChange={handleZoom}
                 onPan={handleTouchPan}
                 panning={isPanning || isDraggingSelected ? 'active' : spaceHeld ? 'ready' : null}
+                cursorOverride={hoveredCursorAxis ? (hoveredCursorAxis === 'x' ? 'ew-resize' : 'ns-resize') : undefined}
                 selectionRect={marquee}
                 canvasRef={canvasRef}
               />
@@ -1112,15 +1270,18 @@ function App() {
           <div className="w-full lg:w-1/4 lg:h-full">
             <Toolbar
               groups={groups}
+              segments={segments}
               selectedGroup={selectedGroup}
               onCreateGroup={createGroup}
               onDeleteGroup={deleteGroup}
               onToggleGroupVisibility={toggleGroupVisibility}
               onSelectGroup={handleSelectGroup}
               onCalculateWaveforms={calculateExpression}
+              onCalculateLogic={calculateLogicExpression}
               onClearAll={clearAll}
               onDuplicateGroup={duplicateGroup}
               onRenameGroup={renameGroup}
+              onReorderGroups={reorderGroups}
               onChangeGroupStyle={changeGroupStyle}
               selectedSegments={selectedSegments}
               onGenerateWaveform={generateWaveform}
