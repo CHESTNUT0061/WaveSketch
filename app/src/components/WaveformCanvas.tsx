@@ -1,10 +1,13 @@
 import React, { useEffect, useCallback } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, ZoomAxis } from '@/types/waveform';
-import { LINE_DASH } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, ZoomAxis } from '@/types/waveform';
+import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
+import { groupsBottomToTop } from '@/lib/waveformOrder';
+import { cursorValueText } from '@/lib/axisCursor';
 
 interface WaveformCanvasProps {
   segments: LineSegment[];
   groups: WaveformGroup[];
+  cursors: AxisCursor[];
   selectedSegments: Set<string>;
   axisConfig: AxisConfig;
   mode: 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';
@@ -22,10 +25,12 @@ interface WaveformCanvasProps {
   onMouseDown: (e: React.MouseEvent) => void;
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseUp: (e: React.MouseEvent) => void;
+  onMouseLeave?: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
   onZoomChange?: (factor: number, screenPos?: Point, axis?: ZoomAxis) => void;
   onPan?: (dxCss: number, dyCss: number) => void; // pan by a screen-pixel delta (two-finger gesture)
   panning?: 'ready' | 'active' | null; // ready = space held, active = dragging
+  cursorOverride?: React.CSSProperties['cursor'];
   selectionRect?: { start: Point; end: Point } | null; // rubber-band rect in world coords
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
@@ -33,6 +38,7 @@ interface WaveformCanvasProps {
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   segments,
   groups,
+  cursors,
   selectedSegments,
   axisConfig,
   mode,
@@ -49,10 +55,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onMouseDown,
   onMouseMove,
   onMouseUp,
+  onMouseLeave,
   onDoubleClick,
   onZoomChange,
   onPan,
   panning = null,
+  cursorOverride,
   selectionRect = null,
   canvasRef,
 }) => {
@@ -192,28 +200,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   }, [axisConfig, worldToScreen, screenToWorld]);
 
-  const drawSegment = useCallback((ctx: CanvasRenderingContext2D, segment: LineSegment, canvas: HTMLCanvasElement, selectedSegs: Set<string>) => {
+  const drawSegment = useCallback((ctx: CanvasRenderingContext2D, segment: LineSegment, canvas: HTMLCanvasElement, selectedSegs: Set<string>, interactionOverlay = false) => {
     const group = groups.find(g => g.id === segment.groupId);
     if (group && !group.visible) return;
 
     const start = worldToScreen(segment.start, canvas);
     const end = worldToScreen(segment.end, canvas);
     const color = group?.color || '#3b82f6';
-    const baseWidth = group?.lineWidth ?? 2;
+    const baseWidth = group?.lineWidth ?? DEFAULT_LINE_WIDTH;
     const dash = LINE_DASH[group?.lineStyle ?? 'solid'];
     const opacity = group?.opacity ?? 1;
 
     // In delete mode the hovered segment turns red
-    if (mode === 'delete' && segment.id === activeSegment) {
+    if (interactionOverlay && mode === 'delete' && segment.id === activeSegment) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = baseWidth + 2;
-    } else if (selectedSegs.has(segment.id)) {
+    } else if (interactionOverlay && selectedSegs.has(segment.id)) {
       // Selected segments are highlighted
       ctx.strokeStyle = color;
       ctx.lineWidth = baseWidth + 2;
     } else {
       ctx.strokeStyle = color;
-      ctx.lineWidth = segment.id === activeSegment ? baseWidth + 1 : baseWidth;
+      ctx.lineWidth = interactionOverlay && segment.id === activeSegment ? baseWidth + 1 : baseWidth;
     }
     ctx.globalAlpha = opacity;
     ctx.setLineDash(dash);
@@ -230,7 +238,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       // Draw control points only for the selected group. Otherwise a generated
       // multi-curve waveform would expose unrelated handles across the canvas.
-      if (mode === 'edit' && selectedGroup === segment.groupId) {
+      if (interactionOverlay && mode === 'edit' && selectedGroup === segment.groupId) {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(control.x, control.y, 6, 0, Math.PI * 2);
@@ -257,7 +265,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
 
     // Edit mode: endpoints/midpoints only for the selected group (drag the midpoint to create a curve)
-    if (mode === 'edit' && selectedGroup && segment.groupId === selectedGroup && !group?.parametric) {
+    if (interactionOverlay && mode === 'edit' && selectedGroup && segment.groupId === selectedGroup && !group?.parametric) {
       // Endpoints
       ctx.fillStyle = segment.id === activeSegment ? '#10b981' : '#3b82f6';
       ctx.beginPath();
@@ -284,13 +292,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   // Parametric sine groups are rendered directly rather than as a collection of
   // editable segments. This keeps the stored model and the edit surface simple.
-  const drawParametricSine = useCallback((ctx: CanvasRenderingContext2D, group: WaveformGroup, canvas: HTMLCanvasElement) => {
+  const drawParametricSine = useCallback((ctx: CanvasRenderingContext2D, group: WaveformGroup, canvas: HTMLCanvasElement, drawHandles = false) => {
     const sine = group.parametric;
     if (!sine || sine.kind !== 'sine' || !group.visible || group.segments.length > 0) return;
 
     const samples = Math.max(80, Math.ceil(sine.totalCycles * 80));
     ctx.strokeStyle = group.color;
-    ctx.lineWidth = group.lineWidth ?? 2;
+    ctx.lineWidth = group.lineWidth ?? DEFAULT_LINE_WIDTH;
     ctx.globalAlpha = group.opacity ?? 1;
     ctx.setLineDash(LINE_DASH[group.lineStyle ?? 'solid']);
     ctx.beginPath();
@@ -307,7 +315,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
-    if (mode !== 'edit' || selectedGroup !== group.id) return;
+    if (!drawHandles || mode !== 'edit' || selectedGroup !== group.id) return;
     const crestTime = sine.startTime + sine.period * (90 - sine.phaseShift) / 360;
     const handles = [
       { point: { x: sine.startTime, y: sine.offset }, color: '#2563eb' }, // move / offset
@@ -378,6 +386,59 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.globalAlpha = 1.0;
   }, [copyingSegments, copyOffset, worldToScreen]);
 
+  const drawCursors = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.fillStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.font = '11px sans-serif';
+    ctx.textBaseline = 'top';
+
+    for (const cursor of cursors) {
+      if (!cursor.visible) continue;
+      const screen = cursor.axis === 'x'
+        ? worldToScreen({ x: cursor.value, y: 0 }, canvas)
+        : worldToScreen({ x: 0, y: cursor.value }, canvas);
+      const position = cursor.axis === 'x' ? screen.x : screen.y;
+      const limit = cursor.axis === 'x' ? cssW : cssH;
+      if (position < 0 || position > limit) continue;
+
+      ctx.beginPath();
+      if (cursor.axis === 'x') {
+        ctx.moveTo(screen.x, 0);
+        ctx.lineTo(screen.x, cssH);
+      } else {
+        ctx.moveTo(0, screen.y);
+        ctx.lineTo(cssW, screen.y);
+      }
+      ctx.stroke();
+
+      const text = cursorValueText(cursor, axisConfig);
+      const textWidth = ctx.measureText(text).width;
+      const boxWidth = textWidth + 8;
+      const boxHeight = 18;
+      const boxX = cursor.axis === 'x'
+        ? Math.max(2, Math.min(cssW - boxWidth - 2, screen.x + 4))
+        : 4;
+      const boxY = cursor.axis === 'x'
+        ? 4
+        : Math.max(2, Math.min(cssH - boxHeight - 2, screen.y - boxHeight - 3));
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxWidth - 1, boxHeight - 1);
+      ctx.fillStyle = '#000000';
+      ctx.fillText(text, boxX + 4, boxY + 3);
+      ctx.strokeStyle = '#000000';
+      ctx.setLineDash([6, 4]);
+    }
+    ctx.restore();
+  }, [cursors, axisConfig, worldToScreen]);
+
   // Responsive canvas sizing
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = React.useState({ width: 800, height: 500 });
@@ -399,11 +460,30 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Draw the grid
     drawGrid(ctx, canvas);
     
-    // Draw segments
-    segments.forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments));
+    // Orphaned legacy segments are always below named groups.
+    segments
+      .filter(segment => !segment.groupId || !groups.some(group => group.id === segment.groupId))
+      .forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments));
 
-    // Draw true parametric waveforms after ordinary segments.
-    groups.forEach(group => drawParametricSine(ctx, group, canvas));
+    // The panel is top-first, while Canvas paints bottom-first. Ordinary and
+    // parametric waveforms share the same per-group stack.
+    groupsBottomToTop(groups).forEach(group => {
+      segments
+        .filter(segment => segment.groupId === group.id)
+        .forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments));
+      drawParametricSine(ctx, group, canvas);
+    });
+
+    // Interaction affordances are transient overlays: they remain visible even
+    // when the edited/selected group is below another waveform.
+    segments
+      .filter(segment => selectedSegments.has(segment.id) || segment.id === activeSegment || (mode === 'edit' && segment.groupId === selectedGroup))
+      .forEach(segment => drawSegment(ctx, segment, canvas, selectedSegments, true));
+    const selectedParametricGroup = mode === 'edit' ? groups.find(group => group.id === selectedGroup) : undefined;
+    if (selectedParametricGroup) drawParametricSine(ctx, selectedParametricGroup, canvas, true);
+
+    // Cursors are alignment overlays: above every waveform group, below transient previews.
+    drawCursors(ctx, canvas);
     
     // Draw the copy preview
     drawCopyPreview(ctx, canvas);
@@ -427,7 +507,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.strokeRect(x, y, w, h);
       ctx.setLineDash([]);
     }
-  }, [segments, groups, selectedSegments, axisConfig, activeSegment, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawParametricSine, drawCopyPreview, drawPreview, canvasSize, selectionRect, worldToScreen]);
+  }, [segments, groups, cursors, selectedSegments, axisConfig, activeSegment, mode, selectedGroup, isDrawing, drawStart, currentMouse, copyingSegments, copyOffset, drawGrid, drawSegment, drawParametricSine, drawCursors, drawCopyPreview, drawPreview, canvasSize, selectionRect, worldToScreen, canvasRef]);
 
   React.useEffect(() => {
     const updateSize = () => {
@@ -578,11 +658,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         style={{
           width: canvasSize.width,
           height: canvasSize.height,
-          cursor: panning ? GRAB_CURSOR : MODE_CURSORS[mode]
+          cursor: cursorOverride ?? (panning ? GRAB_CURSOR : MODE_CURSORS[mode])
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave}
         onDoubleClick={onDoubleClick}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}

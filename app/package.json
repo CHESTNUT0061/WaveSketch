@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --experimental-strip-types --test src/lib/digitalLogic.test.ts src/lib/svgLegend.test.ts src/lib/waveformGeometry.test.ts src/lib/axisCursor.test.ts src/lib/waveformDeletion.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
