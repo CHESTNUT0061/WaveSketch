@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, Viewport, CalcRpnToken, LogicRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
 import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
-import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
+import type { DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
+import { buildWaveformPoints, type GenerateParams, type WaveformType } from '@/lib/waveformGeneration';
 import { calculateLogicPoints } from '@/lib/digitalLogic';
 import { layoutSvgLegend, renderSvgLegend } from '@/lib/svgLegend';
 import { groupsBottomToTop, reorderGroupList } from '@/lib/waveformOrder';
@@ -20,7 +21,7 @@ const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scaleX: BASE_SCALE,
 const clampScale = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
 
 const DEFAULT_AXIS_CONFIG: AxisConfig = {
-  xUnit: 't',
+  xUnit: 'us',
   yUnit: 'A',
   xGridSize: 0.5,      // minor grid (snap unit)
   yGridSize: 0.5,
@@ -84,120 +85,6 @@ interface HistoryState {
 interface SvgBuildOptions {
   includeLegend?: boolean;
   includeCursors?: boolean;
-}
-
-// Waveform generator parameters
-export interface GenerateParams {
-  amplitude: number;
-  period: number;
-  dutyCycle: number;
-  totalCycles: number;
-  startTime: number;
-  phaseShift: number;
-  offset?: number;          // DC offset (all waveform types)
-  edgePercent?: number;     // trapezoid: single-edge time as % of the period
-  dampingTau?: number;      // damped ringing: decay constant in periods
-  complementary?: boolean;  // square/trapezoid: also generate the complementary drive
-  deadTimePercent?: number; // dead band per switching transition, % of the period
-}
-
-// Build the key-point list for one waveform (pure function; DC offset applied)
-function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[] {
-  const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
-  const offset = params.offset ?? 0;
-  const phaseOffset = (phaseShift / 360) * period; // convert to a time offset
-  const points: Point[] = [];
-
-  if (type === 'square') {
-    // Square wave from key points (horizontal + vertical strokes)
-    const dutyTime = (dutyCycle / 100) * period;
-    const lowLevel = -amplitude;
-    const highLevel = amplitude;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: lowLevel });
-      points.push({ x: cycleStart, y: highLevel });
-      points.push({ x: cycleStart + dutyTime, y: highLevel });
-      points.push({ x: cycleStart + dutyTime, y: lowLevel });
-      points.push({ x: cycleStart + period, y: lowLevel });
-    }
-  } else if (type === 'ramp') {
-    // Ramp (inductor-current shape): rise + fall, duty cycle sets the rise time
-    const riseTime = (dutyCycle / 100) * period;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: 0 });
-      points.push({ x: cycleStart + riseTime, y: amplitude });
-      points.push({ x: cycleStart + period, y: 0 });
-    }
-  } else if (type === 'sine') {
-    const samplesPerPeriod = 20;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
-      points.push({ x: t, y: amplitude * Math.sin(normalizedT) });
-    }
-  } else if (type === 'triangle') {
-    // Triangle: duty cycle sets the peak position (50% = symmetric, PWM carrier)
-    const peakTime = (dutyCycle / 100) * period;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + peakTime, y: amplitude });
-    }
-    points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
-  } else if (type === 'sawtooth') {
-    // Sawtooth: linear rise over the full period, instant fall
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + period, y: amplitude });
-      points.push({ x: cycleStart + period, y: -amplitude });
-    }
-  } else if (type === 'trapezoid') {
-    // Trapezoid: switching waveform with finite edges (switch-node voltage, gate drive)
-    const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
-    const edgeTime = edgeFrac * period;
-    // High time = duty time minus one edge time (duty measured at edge midpoints, approximately)
-    const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + edgeTime, y: amplitude });
-      points.push({ x: cycleStart + edgeTime + highTime, y: amplitude });
-      points.push({ x: cycleStart + 2 * edgeTime + highTime, y: -amplitude });
-      points.push({ x: cycleStart + period, y: -amplitude });
-    }
-  } else if (type === 'rectified') {
-    // Full-wave rectified sine. Its period is one positive lobe (π radians),
-    // i.e. half the period of the source sine.
-    const samplesPerPeriod = 20;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * Math.PI + phaseRad;
-      points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
-    }
-  } else if (type === 'damped') {
-    // Damped ringing A*e^(-t/(tau*T))*sin(2*pi*t/T) (switch-node ringing, LC resonance)
-    const tau = Math.max(0.1, params.dampingTau ?? 2) * period;
-    const samplesPerPeriod = 40;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = i * dt;
-      const y = amplitude * Math.exp(-t / tau) * Math.sin((t / period) * 2 * Math.PI + phaseRad);
-      points.push({ x: startTime + t, y });
-    }
-  }
-
-  return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
 }
 
 function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Point[] {
@@ -1644,7 +1531,7 @@ export function useWaveform() {
     if (data.axisConfig) {
       const a = data.axisConfig;
       setAxisConfig({
-        xUnit: a.xUnit ?? 't',
+        xUnit: a.xUnit ?? 'us',
         yUnit: a.yUnit ?? 'A',
         xGridSize: a.xGridSize || 0.5,
         yGridSize: a.yGridSize || 0.5,

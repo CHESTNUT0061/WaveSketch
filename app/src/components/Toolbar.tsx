@@ -93,12 +93,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
     >
       {/* Preset colors */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 mb-2">{t('presetColors')}</div>
+        <div className="mb-2 text-xs text-[var(--ws-muted)]">{t('presetColors')}</div>
         <div className="grid grid-cols-5 gap-1">
           {PRESET_COLORS.map((color) => (
             <button
               key={color}
-              className={`w-7 h-7 rounded-full border-2 ${customColor === color ? 'border-gray-800' : 'border-gray-200'}`}
+              className={`h-7 w-7 rounded-full border-2 ${customColor === color ? 'border-[var(--ws-ink)]' : 'border-[var(--ws-border)]'}`}
               style={{ backgroundColor: color }}
               onClick={() => {
                 setCustomColor(color);
@@ -111,7 +111,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
 
       {/* Custom color */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 mb-2">{t('customColor')}</div>
+        <div className="mb-2 text-xs text-[var(--ws-muted)]">{t('customColor')}</div>
         <div className="flex items-center gap-2">
           <input
             type="color"
@@ -133,7 +133,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
 
       {/* RGB inputs */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 mb-2">RGB</div>
+        <div className="mb-2 text-xs text-[var(--ws-muted)]">RGB</div>
         <div className="flex gap-1">
           <div className="flex-1">
             <Input
@@ -144,7 +144,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
               onChange={(e) => handleRgbChange('r', e.target.value)}
               className="h-7 text-xs px-1"
             />
-            <div className="text-[10px] text-center text-gray-400">R</div>
+            <div className="text-center text-[10px] text-[var(--ws-light)]">R</div>
           </div>
           <div className="flex-1">
             <Input
@@ -155,7 +155,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
               onChange={(e) => handleRgbChange('g', e.target.value)}
               className="h-7 text-xs px-1"
             />
-            <div className="text-[10px] text-center text-gray-400">G</div>
+            <div className="text-center text-[10px] text-[var(--ws-light)]">G</div>
           </div>
           <div className="flex-1">
             <Input
@@ -166,14 +166,14 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
               onChange={(e) => handleRgbChange('b', e.target.value)}
               className="h-7 text-xs px-1"
             />
-            <div className="text-[10px] text-center text-gray-400">B</div>
+            <div className="text-center text-[10px] text-[var(--ws-light)]">B</div>
           </div>
         </div>
       </div>
 
       {/* Line width + dash style */}
       <div className="mb-3 flex items-center gap-2">
-        <span className="text-xs text-gray-500 whitespace-nowrap">{t('lineWidth')}</span>
+        <span className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('lineWidth')}</span>
         <NumberInput min={0.5} max={8} step="0.5" value={lineWidth} onValueChange={setLineWidth} className="h-7 w-14 text-xs px-1" />
         <div className="flex gap-1 flex-1">
           {(['solid', 'dashed', 'dotted'] as LineStyle[]).map(ls => (
@@ -192,7 +192,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
 
       {/* Opacity */}
       <div className="mb-3 flex items-center gap-2">
-        <span className="text-xs text-gray-500 whitespace-nowrap">{t('opacityLabel')}</span>
+        <span className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('opacityLabel')}</span>
         <input
           type="range"
           min={10}
@@ -202,7 +202,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
           onChange={(e) => setOpacityPct(parseInt(e.target.value))}
           className="flex-1"
         />
-        <span className="text-xs text-gray-500 w-9 text-right">{opacityPct}%</span>
+        <span className="w-9 text-right text-xs text-[var(--ws-muted)]">{opacityPct}%</span>
       </div>
 
       {/* Preview and actions */}
@@ -218,7 +218,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ group, onApply, onCancel }) =
               strokeDasharray={lineStyle === 'dashed' ? '8,5' : lineStyle === 'dotted' ? '2,4' : undefined}
             />
           </svg>
-          <span className="text-xs text-gray-500">{t('colorPreview')}</span>
+          <span className="text-xs text-[var(--ws-muted)]">{t('colorPreview')}</span>
         </div>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onCancel}>
@@ -425,9 +425,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <div className="w-full bg-gray-50 p-4 rounded-lg border border-gray-200 overflow-y-auto h-full">
+    <div className="ws-surface ws-inspector-scroll h-full w-full overflow-y-auto rounded-xl p-3 sm:p-4">
       {/* Title */}
-      <h2 className="text-lg font-bold text-gray-800 mb-4">{t('groupPanelTitle')}</h2>
+      <h2 className="ws-display mb-4 pr-8 text-lg font-bold text-[var(--ws-ink)]">{t('groupPanelTitle')}</h2>
 
       {/* Waveform group management */}
       <div className="mb-4">
@@ -443,9 +443,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Plus className="w-4 h-4" />
           </Button>
         </div>
-        <div ref={groupListRef} className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded p-2 bg-white mb-2">
+        <div ref={groupListRef} className="mb-2 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-[var(--ws-border)] bg-white/65 p-2">
           {groups.length === 0 && (
-            <div className="text-xs text-gray-400 text-center py-2">{t('noGroups')}</div>
+            <div className="py-2 text-center text-xs text-[var(--ws-light)]">{t('noGroups')}</div>
           )}
           {groups.map((group) => (
             <div
@@ -453,16 +453,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               data-waveform-group-id={group.id}
               className={`flex items-center justify-between p-2 rounded text-sm transition-colors ${
                 dragOverGroup === group.id && draggingGroup !== group.id
-                  ? 'ring-2 ring-blue-400 bg-blue-50'
-                  : selectedGroup === group.id ? 'bg-blue-100' : 'hover:bg-gray-50'
+                  ? 'bg-[var(--ws-accent-light)] ring-2 ring-primary/40'
+                  : selectedGroup === group.id ? 'bg-[var(--ws-accent-medium)]' : 'hover:bg-[var(--ws-card)]'
               } ${draggingGroup === group.id ? 'opacity-50' : ''
               }`}
+              title={selectedGroup === group.id ? t('groupDeselectHint') : undefined}
               onClick={() => onSelectGroup(group.id === selectedGroup ? null : group.id)}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
                   type="button"
-                  className="h-6 w-5 -ml-1 flex shrink-0 touch-none cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:cursor-grabbing"
+                  className="-ml-1 flex h-6 w-5 shrink-0 touch-none cursor-grab items-center justify-center rounded text-[var(--ws-light)] hover:bg-[var(--ws-accent-light)] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
                   aria-label={`${t('titleReorderGroup')}：${group.name}`}
                   title={t('titleReorderGroup')}
                   onClick={(event) => event.stopPropagation()}
@@ -509,7 +510,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   </div>
                 ) : (
                   <span 
-                    className={`truncate ${!group.visible ? 'text-gray-400' : ''}`}
+                    className={`truncate ${!group.visible ? 'text-[var(--ws-light)]' : ''}`}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       setEditingGroup(group.id);
@@ -536,7 +537,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       title={t('titleGroupStyle')}
                     >
                       <div
-                        className="w-3 h-3 rounded-full border border-gray-300"
+                        className="h-3 w-3 rounded-full border border-[var(--ws-border)]"
                         style={{ backgroundColor: group.color }}
                       />
                     </Button>
@@ -612,6 +613,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           ))}
         </div>
+        {groups.length > 0 && (
+          <p className="mb-2 px-1 text-[11px] text-[var(--ws-light)]">{t('groupDeselectHint')}</p>
+        )}
         
         {/* Clear all */}
         <Button
@@ -630,14 +634,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="mb-4">
           {/* Selection count */}
           {selectedSegments.size > 0 && !isCopyPreview && (
-            <div className="p-2 bg-blue-50 rounded mb-2 text-sm font-medium text-blue-800">
+            <div className="mb-2 rounded-lg bg-[var(--ws-accent-light)] p-2 text-sm font-medium text-primary">
               {t('selectedN', { n: selectedSegments.size })}
             </div>
           )}
 
           {/* Clipboard status */}
           {clipboardSegments.length > 0 && !isCopyPreview && (
-            <div className="p-2 bg-indigo-50 rounded mb-2 text-sm font-medium text-indigo-800">
+            <div className="mb-2 rounded-lg bg-[var(--ws-accent-light)] p-2 text-sm font-medium text-primary">
               {t('copiedN', { n: clipboardSegments.length })}
             </div>
           )}
@@ -659,12 +663,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Tab switcher */}
       <div className="mb-3">
-        <div className="flex border-b border-gray-200">
+        <div className="flex border-b border-[var(--ws-border)]">
           <button
             className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-1 ${
               activeTab === 'generator'
-                ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'border-b-2 border-primary bg-[var(--ws-accent-light)] text-primary'
+                : 'text-[var(--ws-muted)] hover:text-[var(--ws-ink)]'
             }`}
             onClick={() => setActiveTab('generator')}
           >
@@ -674,8 +678,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-1 ${
               activeTab === 'calculator'
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'border-b-2 border-primary bg-[var(--ws-accent-light)] text-primary'
+                : 'text-[var(--ws-muted)] hover:text-[var(--ws-ink)]'
             }`}
             onClick={() => setActiveTab('calculator')}
           >

@@ -17,8 +17,9 @@ import { ChevronDown, Plus, Layers } from 'lucide-react';
 import { useI18n, type StringKey } from '@/i18n';
 import { NumberInput } from '@/components/NumberInput';
 import type { WaveformGroup } from '@/types/waveform';
+import type { WaveformType } from '@/lib/waveformGeneration';
 
-export type WaveformType = 'square' | 'ramp' | 'sine' | 'triangle' | 'sawtooth' | 'trapezoid' | 'rectified' | 'damped';
+export type { WaveformType } from '@/lib/waveformGeneration';
 export type DcdcTemplate = 'llc' | 'dab' | 'buck' | 'boost';
 
 export interface DcdcTemplateParams {
@@ -66,17 +67,15 @@ const WAVE_TYPE_KEYS: { value: WaveformType; key: StringKey }[] = [
   { value: 'ramp', key: 'wtRamp' },
   { value: 'sine', key: 'wtSine' },
   { value: 'triangle', key: 'wtTriangle' },
-  { value: 'sawtooth', key: 'wtSawtooth' },
   { value: 'trapezoid', key: 'wtTrapezoid' },
   { value: 'rectified', key: 'wtRectified' },
   { value: 'damped', key: 'wtDamped' },
 ];
 
 // Waveform types that use the duty-cycle parameter
-const DUTY_TYPES: WaveformType[] = ['square', 'ramp', 'triangle', 'trapezoid'];
+const DUTY_TYPES: WaveformType[] = ['square', 'triangle', 'trapezoid'];
 const DUTY_LABEL_KEYS: Partial<Record<WaveformType, StringKey>> = {
   square: 'dutySquare',
-  ramp: 'dutyRamp',
   triangle: 'dutyTriangle',
   trapezoid: 'dutySquare',
 };
@@ -188,9 +187,9 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
   };
 
   return (
-    <div className="p-3 bg-purple-50 rounded border border-purple-200">
+    <div className="rounded-xl border border-[var(--ws-border)] bg-[var(--ws-card)] p-3">
       <div className="mb-3">
-        <Label className="text-xs text-gray-600 mb-1 block">{t('generatorCategoryType')}</Label>
+        <Label className="mb-1 block text-xs text-[var(--ws-muted)]">{t('generatorCategoryType')}</Label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="h-8 w-full justify-between px-3 font-normal">
@@ -281,11 +280,6 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
             {t(DUTY_LABEL_KEYS[type]!)}
           </Label>
           <NumberInput min={0} max={100} value={dutyCycle} onValueChange={setDutyCycle} className="h-8" />
-          {type === 'ramp' && (
-            <div className="text-xs text-gray-500 mt-1">
-              {t('rampHint')}
-            </div>
-          )}
           {type === 'triangle' && (
             <div className="text-xs text-gray-500 mt-1">
               {t('triangleHint')}
@@ -318,7 +312,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
 
       {/* Complementary drive (square/trapezoid only, exclusive with interleaving) */}
       {COMP_TYPES.includes(type) && (
-        <div className="mb-3 pt-2 border-t border-purple-200">
+        <div className="mb-3 border-t border-[var(--ws-border)] pt-2">
           <div className="flex items-center gap-2 mb-2">
             <Checkbox
               id="complementary"
@@ -326,7 +320,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
               disabled={enablePhaseShift}
               onCheckedChange={(checked) => setEnableComplementary(checked as boolean)}
             />
-            <Label htmlFor="complementary" className="text-xs text-purple-700 cursor-pointer">
+            <Label htmlFor="complementary" className="cursor-pointer text-xs text-primary">
               {t('enableComplementary')}
             </Label>
           </div>
@@ -343,7 +337,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       )}
 
       {/* Phase interleaving */}
-      <div className="mb-3 pt-2 border-t border-purple-200">
+      <div className="mb-3 border-t border-[var(--ws-border)] pt-2">
         <div className="flex items-center gap-2 mb-2">
           <Checkbox
             id="phaseShift"
@@ -351,7 +345,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
             disabled={enableComplementary}
             onCheckedChange={(checked) => setEnablePhaseShift(checked as boolean)}
           />
-          <Label htmlFor="phaseShift" className="text-xs text-purple-700 cursor-pointer">
+          <Label htmlFor="phaseShift" className="cursor-pointer text-xs text-primary">
             {t('enablePhase')}
           </Label>
         </div>
@@ -373,7 +367,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       <Button
         size="sm"
         onClick={handleGenerate}
-        className="w-full flex items-center gap-1 bg-purple-600 hover:bg-purple-700"
+        className="flex w-full items-center gap-1"
       >
         <Plus className="w-4 h-4" />
         {t('generate')}
@@ -383,7 +377,7 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
 
       {/* Common DC/DC topology waveform bundles */}
       {category === 'dcdc' && <div className="pt-1">
-        <Label className="text-xs text-purple-700 mb-1 block">{t('dcdcTitle')}</Label>
+        <Label className="mb-1 block text-xs text-primary">{t('dcdcTitle')}</Label>
         <div className="text-xs text-gray-500 mb-2">{t('dcdcHint')}</div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div>
@@ -427,8 +421,8 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
       </div>}
 
       {/* Multi-phase extension of an existing group */}
-      {category === 'basic' && <div className="mt-3 pt-3 border-t border-purple-200">
-        <Label className="text-xs text-purple-700 mb-2 block">{t('multiPhaseTitle')}</Label>
+      {category === 'basic' && <div className="mt-3 border-t border-[var(--ws-border)] pt-3">
+        <Label className="mb-2 block text-xs text-primary">{t('multiPhaseTitle')}</Label>
         <Select value={mpGroupId} onValueChange={setMpGroupId}>
           <SelectTrigger className="h-8 mb-2">
             <SelectValue placeholder={t('selectWaveform')} />

@@ -41,7 +41,7 @@ export const CursorManager: React.FC<CursorManagerProps> = ({
         <Button variant="outline" size="sm" className="flex items-center gap-1">
           <Crosshair className="h-4 w-4" />
           {t('cursorTitle')}
-          {cursors.length > 0 && <span className="text-[10px] text-gray-500">({cursors.length})</span>}
+          {cursors.length > 0 && <span className="text-[10px] text-[var(--ws-muted)]">({cursors.length})</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(24rem,calc(100vw-1rem))] p-3">
@@ -59,13 +59,13 @@ export const CursorManager: React.FC<CursorManagerProps> = ({
 
         <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
           {cursors.length === 0 && (
-            <div className="rounded border border-dashed p-4 text-center text-xs text-gray-400">{t('noCursors')}</div>
+            <div className="rounded-lg border border-dashed border-[var(--ws-border)] p-4 text-center text-xs text-[var(--ws-light)]">{t('noCursors')}</div>
           )}
           {cursors.map(cursor => {
             const unit = cursor.axis === 'x' ? axisConfig.xUnit : axisConfig.yUnit;
             return (
-              <div key={cursor.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-1.5 rounded border bg-white p-1.5">
-                <span className="text-xs font-semibold text-gray-700">{cursor.label}</span>
+              <div key={cursor.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-1.5 rounded-lg border border-[var(--ws-border)] bg-white/70 p-1.5">
+                <span className="text-xs font-semibold text-[var(--ws-ink)]">{cursor.label}</span>
                 <div className="flex min-w-0 items-center gap-1">
                   <NumberInput
                     value={cursor.value}

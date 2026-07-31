@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AxisConfig, AxisCursor } from '../types/waveform.ts';
-import { findAxisCursorHit, nextCursorLabel, renderSvgCursors, sanitizeAxisCursors, snapCursorValue } from './axisCursor.ts';
+import { findAxisCursorHit, layoutCursorLabel, nextCursorLabel, renderSvgCursors, sanitizeAxisCursors, snapCursorValue } from './axisCursor.ts';
 
 const config: AxisConfig = { xUnit: 't', yUnit: 'A', xGridSize: 0.5, yGridSize: 0.25, xMajorGridSize: 2, yMajorGridSize: 1 };
 const cursors: AxisCursor[] = [
@@ -37,4 +37,15 @@ test('sanitizes cursor data and renders only in-range visible cursors', () => {
   assert.match(svg, /Y1 = 1 A/);
   assert.doesNotMatch(svg, /Y&lt;2/);
   assert.doesNotMatch(svg, /X9/);
+});
+
+test('keeps cursor labels inside bounds and truncates long text', () => {
+  const measure = (value: string) => value.length * 6;
+  const rightEdge = layoutCursorLabel('X1 = 123.456789 very-long-unit', 'x', 98, { left: 0, top: 0, right: 100, bottom: 60 }, measure);
+  assert.ok(rightEdge.boxX >= 2);
+  assert.ok(rightEdge.boxX + rightEdge.boxWidth <= 98);
+  assert.ok(rightEdge.text.endsWith('…'));
+  const topEdge = layoutCursorLabel('Y1 = 2 A', 'y', 1, { left: 0, top: 0, right: 100, bottom: 60 }, measure);
+  assert.ok(topEdge.boxY >= 2);
+  assert.ok(topEdge.boxY + topEdge.boxHeight <= 58);
 });
