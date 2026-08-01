@@ -40,4 +40,3 @@ Found a bug or have a feature request? Please open a [GitHub Issue](https://gith
 
 Copyright © 2026 CHESTNUT0061. Released under the [MIT License](LICENSE).
 
-版权声明用于标识著作权人，MIT License 用于说明他人可以如何使用、修改和分发软件；两者相互配合，并不冲突。
