@@ -49,15 +49,15 @@ export function AxisSettingsPanel({ axisConfig, onChange }: AxisSettingsPanelPro
       <div className="flex min-w-fit flex-1 flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('yUnit')}</Label>
-          <Input value={axisConfig.yUnit} onChange={(event) => onChange({ ...axisConfig, yUnit: event.target.value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <Input value={axisConfig.yUnit} onChange={(event) => onChange({ ...axisConfig, yUnit: event.target.value })} className="h-7 w-[4.5rem] bg-white/70 px-2 text-sm" />
         </div>
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('minorGrid')}</Label>
-          <NumberInput step="0.1" min={0.01} value={axisConfig.yGridSize} onValueChange={(value) => onChange({ ...axisConfig, yGridSize: value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <NumberInput step="0.1" min={0.01} value={axisConfig.yGridSize} onValueChange={(value) => onChange({ ...axisConfig, yGridSize: value })} className="h-7 w-[5.25rem] bg-white/70 px-2 text-sm tabular-nums" />
         </div>
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('majorGrid')}</Label>
-          <NumberInput step="0.5" min={0.01} value={axisConfig.yMajorGridSize} onValueChange={(value) => onChange({ ...axisConfig, yMajorGridSize: value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <NumberInput step="0.5" min={0.01} value={axisConfig.yMajorGridSize} onValueChange={(value) => onChange({ ...axisConfig, yMajorGridSize: value })} className="h-7 w-[5.25rem] bg-white/70 px-2 text-sm tabular-nums" />
         </div>
       </div>
 
@@ -66,15 +66,15 @@ export function AxisSettingsPanel({ axisConfig, onChange }: AxisSettingsPanelPro
       <div className="flex min-w-fit flex-1 flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('xUnit')}</Label>
-          <Input value={axisConfig.xUnit} onChange={(event) => onChange({ ...axisConfig, xUnit: event.target.value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <Input value={axisConfig.xUnit} onChange={(event) => onChange({ ...axisConfig, xUnit: event.target.value })} className="h-7 w-[4.5rem] bg-white/70 px-2 text-sm" />
         </div>
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('minorGrid')}</Label>
-          <NumberInput step="0.1" min={0.01} value={axisConfig.xGridSize} onValueChange={(value) => onChange({ ...axisConfig, xGridSize: value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <NumberInput step="0.1" min={0.01} value={axisConfig.xGridSize} onValueChange={(value) => onChange({ ...axisConfig, xGridSize: value })} className="h-7 w-[5.25rem] bg-white/70 px-2 text-sm tabular-nums" />
         </div>
         <div className="flex items-center gap-2">
           <Label className="whitespace-nowrap text-xs text-[var(--ws-muted)]">{t('majorGrid')}</Label>
-          <NumberInput step="0.5" min={0.01} value={axisConfig.xMajorGridSize} onValueChange={(value) => onChange({ ...axisConfig, xMajorGridSize: value })} className="h-7 w-14 bg-white/70 px-2 text-sm" />
+          <NumberInput step="0.5" min={0.01} value={axisConfig.xMajorGridSize} onValueChange={(value) => onChange({ ...axisConfig, xMajorGridSize: value })} className="h-7 w-[5.25rem] bg-white/70 px-2 text-sm tabular-nums" />
         </div>
       </div>
     </div>

@@ -2,6 +2,18 @@
 
 All notable changes to WaveSketch are documented in this file.
 
+## [1.0.1] - 2026-08-02
+
+### Added
+
+- A local responsive preview tool with device presets, custom dimensions, rotation, and fit-to-window controls.
+
+### Fixed
+
+- Axis-setting inputs no longer clip decimal grid values.
+- The footer chestnut now preloads both states and animates when the links menu opens or closes.
+- The mobile waveform drawer scrolls to its final controls and respects the device bottom safe area.
+
 ## [1.0] - 2026-08-01
 
 ### Added
