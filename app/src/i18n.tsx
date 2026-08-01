@@ -8,6 +8,19 @@ const LANG_KEY = 'wavesketch-lang';
 // Use {n} placeholders for interpolation (see the t() helper).
 const S = {
   appTitle: { zh: 'WaveSketch', en: 'WaveSketch' },
+  appTagline: { zh: '为论文、演示与技术分享绘制清晰波形', en: 'Clear waveforms for papers, presentations, and technical work' },
+  aboutButton: { zh: '关于', en: 'About' },
+  aboutTitle: { zh: '轻量、精确的波形工作区', en: 'A focused workspace for precise waveforms' },
+  aboutDescription: { zh: '打开网页即可绘制、生成、计算和导出波形。界面为高密度工程操作设计，波形数据始终保留在你的浏览器中。', en: 'Draw, generate, calculate, and export waveforms directly in the browser. The workspace is designed for dense engineering tasks while waveform data stays in your browser.' },
+  aboutFeatureDraw: { zh: '绘制与编辑', en: 'Draw and edit' },
+  aboutFeatureCompute: { zh: '生成与计算', en: 'Generate and calculate' },
+  aboutFeatureExport: { zh: 'SVG / PNG 导出', en: 'SVG / PNG export' },
+  inspectorButton: { zh: '波形面板', en: 'Waveform panel' },
+  openInspector: { zh: '打开波形面板', en: 'Open waveform panel' },
+  closeInspector: { zh: '收起波形面板', en: 'Collapse waveform panel' },
+  inspectorDescription: { zh: '管理波形组、生成波形并进行计算', en: 'Manage waveform groups, generate waveforms, and calculate results' },
+  drawingTools: { zh: '绘制工具', en: 'Drawing tools' },
+  dataAndHistoryTools: { zh: '数据、导出与历史工具', en: 'Data, export, and history tools' },
 
   // Tool buttons
   toolSelect: { zh: '选择', en: 'Select' },
@@ -74,8 +87,14 @@ const S = {
   visitorPrefix: { zh: '· 访客', en: '· visitors' },
   visitorSuffix: { zh: '人', en: '' },
   linkWpd: { zh: '推荐：曲线取点工具 WebPlotDigitizer', en: 'Recommended: WebPlotDigitizer (curve digitizer)' },
+  linkWpdShort: { zh: '曲线取点', en: 'Curve digitizer' },
   linkFeedback: { zh: '意见反馈', en: 'Feedback' },
   linkGithub: { zh: 'GitHub', en: 'GitHub' },
+  visitCountShort: { zh: '访问', en: 'Visits' },
+  visitorShort: { zh: '访客', en: 'Visitors' },
+  relatedLinks: { zh: '相关链接', en: 'Related links' },
+  recommendedLinks: { zh: '推荐链接', en: 'Recommended links' },
+  openMascotMenu: { zh: '打开相关链接', en: 'Open related links' },
 
   // Group panel
   groupPanelTitle: { zh: '波形组管理', en: 'Waveform Groups' },
@@ -88,6 +107,7 @@ const S = {
   titleChangeColor: { zh: '修改颜色', en: 'Change color' },
   titleDuplicate: { zh: '复制组', en: 'Duplicate group' },
   titleReorderGroup: { zh: '拖动排序；方向键可调整', en: 'Drag to reorder; arrow keys also work' },
+  groupDeselectHint: { zh: '再次点击已选中的波形组可取消选择', en: 'Click the selected group again to clear the group filter' },
 
   // Group style panel
   presetColors: { zh: '预设颜色', en: 'Presets' },
@@ -138,8 +158,7 @@ const S = {
   edgeHint: { zh: '单个上升/下降沿占周期的百分比', en: 'One rising/falling edge as % of the period' },
   dampingTau: { zh: '衰减时间常数 τ（周期数）', en: 'Decay constant τ (periods)' },
   dampingHint: { zh: '幅度按 e^(-t/τT) 衰减，τ 越大振铃持续越久', en: 'Amplitude decays as e^(-t/τT); larger τ rings longer' },
-  rampHint: { zh: '类似电感电流：上升沿占空比，下降沿为剩余时间', en: 'Like inductor current: duty sets the rise, the rest falls' },
-  triangleHint: { zh: '50% 为对称三角波，100% 等效锯齿波', en: '50% = symmetric triangle, 100% ≈ sawtooth' },
+  triangleHint: { zh: '50% 为对称三角波，100% 等效斜坡波', en: '50% = symmetric triangle, 100% ≈ ramp' },
   enablePhase: { zh: '启用错相功能', en: 'Enable phase interleaving' },
   enableComplementary: { zh: '生成互补波形', en: 'Generate complementary signal' },
   deadTimePercent: { zh: '死区占比 (%)', en: 'Dead time (% of period)' },
@@ -152,15 +171,13 @@ const S = {
   phaseDiff: { zh: '相位差: {n}°', en: 'Phase step: {n}°' },
   generate: { zh: '生成波形', en: 'Generate' },
   dutySquare: { zh: '占空比 (%)', en: 'Duty cycle (%)' },
-  dutyRamp: { zh: '上升占空比 (%)', en: 'Rise duty (%)' },
   dutyTriangle: { zh: '峰值位置 (%)', en: 'Peak position (%)' },
 
   // Waveform type labels
   wtSquare: { zh: '方波', en: 'Square' },
-  wtRamp: { zh: 'Ramp波', en: 'Ramp' },
+  wtRamp: { zh: '斜坡', en: 'Ramp' },
   wtSine: { zh: '正弦波', en: 'Sine' },
   wtTriangle: { zh: '三角波', en: 'Triangle' },
-  wtSawtooth: { zh: '锯齿波', en: 'Sawtooth' },
   wtTrapezoid: { zh: '梯形波', en: 'Trapezoid' },
   wtRectified: { zh: '整流正弦 |sin|', en: 'Rectified sine |sin|' },
   wtDamped: { zh: '阻尼振荡', en: 'Damped ringing' },
@@ -253,6 +270,8 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>;
 };
 
+// The provider and its hook intentionally live together so the dictionary stays encapsulated.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext);
   if (!ctx) throw new Error('useI18n must be used within I18nProvider');

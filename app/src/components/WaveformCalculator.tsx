@@ -184,13 +184,13 @@ export const WaveformCalculator: React.FC<WaveformCalculatorProps> = ({
     <div className="mb-6">
       <Label className="text-sm font-medium mb-2 block">{t('calcTitle')}</Label>
       <div className="grid grid-cols-2 mb-3 rounded border overflow-hidden">
-        <button className={`py-1.5 text-xs ${mode === 'arithmetic' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`} onClick={() => { setMode('arithmetic'); setError(null); }}>{t('calcArithmetic')}</button>
-        <button className={`py-1.5 text-xs ${mode === 'logic' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`} onClick={() => { setMode('logic'); setError(null); }}>{t('calcLogic')}</button>
+        <button className={`py-1.5 text-xs ${mode === 'arithmetic' ? 'bg-primary text-primary-foreground' : 'bg-white/70 text-[var(--ws-muted)]'}`} onClick={() => { setMode('arithmetic'); setError(null); }}>{t('calcArithmetic')}</button>
+        <button className={`py-1.5 text-xs ${mode === 'logic' ? 'bg-primary text-primary-foreground' : 'bg-white/70 text-[var(--ws-muted)]'}`} onClick={() => { setMode('logic'); setError(null); }}>{t('calcLogic')}</button>
       </div>
 
-      <div className="mb-3 p-2 bg-gray-100 rounded border">
+      <div className="mb-3 rounded-lg border border-[var(--ws-border)] bg-white/65 p-2">
         <div className="text-sm font-mono min-h-[24px] break-all">
-          {tokens.length ? tokens.map(token => mode === 'arithmetic' ? arithmeticText(token as ArithmeticToken) : logicText(token as LogicToken)).join(' ') : <span className="text-gray-400">{t('calcPlaceholder')}</span>}
+          {tokens.length ? tokens.map(token => mode === 'arithmetic' ? arithmeticText(token as ArithmeticToken) : logicText(token as LogicToken)).join(' ') : <span className="text-[var(--ws-light)]">{t('calcPlaceholder')}</span>}
         </div>
         {error && <div className="text-xs text-red-500 mt-1">{error}</div>}
       </div>

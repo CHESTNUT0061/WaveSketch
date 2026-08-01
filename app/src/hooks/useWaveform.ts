@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, Viewport, CalcRpnToken, LogicRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
 import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
-import type { WaveformType, DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
+import type { DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
+import { buildWaveformPoints, type GenerateParams, type WaveformType } from '@/lib/waveformGeneration';
 import { calculateLogicPoints } from '@/lib/digitalLogic';
 import { layoutSvgLegend, renderSvgLegend } from '@/lib/svgLegend';
 import { groupsBottomToTop, reorderGroupList } from '@/lib/waveformOrder';
 import { nextCursorLabel, renderSvgCursors, sanitizeAxisCursors } from '@/lib/axisCursor';
 import { deleteSegmentsAndEmptyGroups } from '@/lib/waveformDeletion';
+import { calculateArithmeticPoints } from '@/lib/waveformArithmetic';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -20,7 +22,7 @@ const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scaleX: BASE_SCALE,
 const clampScale = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
 
 const DEFAULT_AXIS_CONFIG: AxisConfig = {
-  xUnit: 't',
+  xUnit: 'us',
   yUnit: 'A',
   xGridSize: 0.5,      // minor grid (snap unit)
   yGridSize: 0.5,
@@ -86,120 +88,6 @@ interface SvgBuildOptions {
   includeCursors?: boolean;
 }
 
-// Waveform generator parameters
-export interface GenerateParams {
-  amplitude: number;
-  period: number;
-  dutyCycle: number;
-  totalCycles: number;
-  startTime: number;
-  phaseShift: number;
-  offset?: number;          // DC offset (all waveform types)
-  edgePercent?: number;     // trapezoid: single-edge time as % of the period
-  dampingTau?: number;      // damped ringing: decay constant in periods
-  complementary?: boolean;  // square/trapezoid: also generate the complementary drive
-  deadTimePercent?: number; // dead band per switching transition, % of the period
-}
-
-// Build the key-point list for one waveform (pure function; DC offset applied)
-function buildWaveformPoints(type: WaveformType, params: GenerateParams): Point[] {
-  const { amplitude, period, dutyCycle, totalCycles, startTime, phaseShift } = params;
-  const offset = params.offset ?? 0;
-  const phaseOffset = (phaseShift / 360) * period; // convert to a time offset
-  const points: Point[] = [];
-
-  if (type === 'square') {
-    // Square wave from key points (horizontal + vertical strokes)
-    const dutyTime = (dutyCycle / 100) * period;
-    const lowLevel = -amplitude;
-    const highLevel = amplitude;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: lowLevel });
-      points.push({ x: cycleStart, y: highLevel });
-      points.push({ x: cycleStart + dutyTime, y: highLevel });
-      points.push({ x: cycleStart + dutyTime, y: lowLevel });
-      points.push({ x: cycleStart + period, y: lowLevel });
-    }
-  } else if (type === 'ramp') {
-    // Ramp (inductor-current shape): rise + fall, duty cycle sets the rise time
-    const riseTime = (dutyCycle / 100) * period;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: 0 });
-      points.push({ x: cycleStart + riseTime, y: amplitude });
-      points.push({ x: cycleStart + period, y: 0 });
-    }
-  } else if (type === 'sine') {
-    const samplesPerPeriod = 20;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * 2 * Math.PI + phaseRad;
-      points.push({ x: t, y: amplitude * Math.sin(normalizedT) });
-    }
-  } else if (type === 'triangle') {
-    // Triangle: duty cycle sets the peak position (50% = symmetric, PWM carrier)
-    const peakTime = (dutyCycle / 100) * period;
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + peakTime, y: amplitude });
-    }
-    points.push({ x: startTime + totalCycles * period + phaseOffset, y: -amplitude });
-  } else if (type === 'sawtooth') {
-    // Sawtooth: linear rise over the full period, instant fall
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + period, y: amplitude });
-      points.push({ x: cycleStart + period, y: -amplitude });
-    }
-  } else if (type === 'trapezoid') {
-    // Trapezoid: switching waveform with finite edges (switch-node voltage, gate drive)
-    const edgeFrac = Math.max(0.1, Math.min(40, params.edgePercent ?? 10)) / 100;
-    const edgeTime = edgeFrac * period;
-    // High time = duty time minus one edge time (duty measured at edge midpoints, approximately)
-    const highTime = Math.max(0, (dutyCycle / 100) * period - edgeTime);
-    for (let cycle = 0; cycle < totalCycles; cycle++) {
-      const cycleStart = startTime + cycle * period + phaseOffset;
-      points.push({ x: cycleStart, y: -amplitude });
-      points.push({ x: cycleStart + edgeTime, y: amplitude });
-      points.push({ x: cycleStart + edgeTime + highTime, y: amplitude });
-      points.push({ x: cycleStart + 2 * edgeTime + highTime, y: -amplitude });
-      points.push({ x: cycleStart + period, y: -amplitude });
-    }
-  } else if (type === 'rectified') {
-    // Full-wave rectified sine. Its period is one positive lobe (π radians),
-    // i.e. half the period of the source sine.
-    const samplesPerPeriod = 20;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = startTime + i * dt;
-      const normalizedT = ((t - startTime) / period) * Math.PI + phaseRad;
-      points.push({ x: t, y: Math.abs(amplitude * Math.sin(normalizedT)) });
-    }
-  } else if (type === 'damped') {
-    // Damped ringing A*e^(-t/(tau*T))*sin(2*pi*t/T) (switch-node ringing, LC resonance)
-    const tau = Math.max(0.1, params.dampingTau ?? 2) * period;
-    const samplesPerPeriod = 40;
-    const totalSamples = Math.ceil(samplesPerPeriod * totalCycles);
-    const dt = period / samplesPerPeriod;
-    const phaseRad = (phaseShift * Math.PI) / 180;
-    for (let i = 0; i <= totalSamples; i++) {
-      const t = i * dt;
-      const y = amplitude * Math.exp(-t / tau) * Math.sin((t / period) * 2 * Math.PI + phaseRad);
-      points.push({ x: startTime + t, y });
-    }
-  }
-
-  return offset !== 0 ? points.map(p => ({ x: p.x, y: p.y + offset })) : points;
-}
-
 function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Point[] {
   const samples = Math.max(80, Math.ceil(sine.totalCycles * samplesPerPeriod));
   const totalTime = sine.period * sine.totalCycles;
@@ -211,41 +99,6 @@ function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Poin
       y: sine.offset + sine.amplitude * Math.sin(2 * Math.PI * elapsed / sine.period + phase),
     };
   });
-}
-
-// One-sided interpolation at x (points sorted by x; returns 0 outside the range).
-function interpolateSide(
-  x: number,
-  points: Point[],
-  side: 'left' | 'right',
-  preserveBoundary = false,
-): number {
-  const n = points.length;
-  if (n === 0) return 0;
-  const eps = 1e-9;
-  let runStart = -1;
-  let runEnd = -1;
-  for (let index = 0; index < n; index++) {
-    if (Math.abs(points[index].x - x) <= eps) {
-      if (runStart === -1) runStart = index;
-      runEnd = index;
-    } else if (points[index].x > x + eps) break;
-  }
-  if (runStart !== -1) {
-    const atStart = Math.abs(x - points[0].x) <= eps;
-    const atEnd = Math.abs(x - points[n - 1].x) <= eps;
-    if (!preserveBoundary && ((atStart && side === 'left') || (atEnd && side === 'right'))) return 0;
-    return side === 'left' ? points[runStart].y : points[runEnd].y;
-  }
-  for (let index = 0; index < n - 1; index++) {
-    if (x > points[index].x && x < points[index + 1].x) {
-      const dx = points[index + 1].x - points[index].x;
-      if (dx < eps) continue;
-      const t = (x - points[index].x) / dx;
-      return points[index].y + t * (points[index + 1].y - points[index].y);
-    }
-  }
-  return 0;
 }
 
 // One editable quadratic Bezier per half-period. With equal endpoint levels and
@@ -956,107 +809,15 @@ export function useWaveform() {
 
   // Waveform expression evaluation (RPN; supports +, -, x, parentheses, constants, e.g. (A + B) x 0.5 - 1)
   const calculateExpression = useCallback((expression: string, rpn: CalcRpnToken[]) => {
-    if (rpn.length === 0) return;
-
-    // Collect point data of the referenced groups (sorted by x, true unsnapped values)
-    const groupPointsMap = new Map<string, Point[]>();
-    for (const tk of rpn) {
-      if (tk.t === 'g' && !groupPointsMap.has(tk.id)) {
-        const group = groups.find(g => g.id === tk.id);
-        if (!group) return; // a referenced group was deleted; abort
-
-        const points: Point[] = group.parametric?.kind === 'sine'
-          ? sampleParametricSine(group.parametric)
-          : [];
-        segments.filter(s => group.segments.includes(s.id)).forEach(s => {
-          points.push(s.start, s.end);
-          if (s.control) points.push(s.control);
-        });
-        points.sort((a, b) => a.x - b.x);
-        groupPointsMap.set(tk.id, points);
-      }
-    }
-    if (groupPointsMap.size === 0) return;
-
-    // Union of all x coords, near-duplicates merged by tolerance (avoids sliver segments from float error)
-    const xs: number[] = [];
-    groupPointsMap.forEach(pts => pts.forEach(p => xs.push(p.x)));
-    xs.sort((a, b) => a - b);
-    const uniqX: number[] = [];
-    for (const x of xs) {
-      if (uniqX.length === 0 || x - uniqX[uniqX.length - 1] > 1e-9) uniqX.push(x);
-    }
-    if (uniqX.length < 2) return;
-
-    // With waveform x waveform (e.g. instantaneous power V x I) the result is piecewise quadratic;
-    // sampling only at endpoints would distort it - add 2 extra samples per interval
-    const typeStack: boolean[] = [];
-    let hasWaveMul = false;
-    for (const tk of rpn) {
-      if (tk.t === 'g') typeStack.push(true);
-      else if (tk.t === 'c') typeStack.push(false);
-      else {
-        const b = typeStack.pop() ?? false;
-        const a = typeStack.pop() ?? false;
-        if (tk.v === '×' && a && b) hasWaveMul = true;
-        typeStack.push(a || b);
-      }
-    }
-    let sampleXs = uniqX;
-    if (hasWaveMul) {
-      sampleXs = [];
-      for (let i = 0; i < uniqX.length - 1; i++) {
-        sampleXs.push(uniqX[i]);
-        sampleXs.push(uniqX[i] + (uniqX[i + 1] - uniqX[i]) / 3);
-        sampleXs.push(uniqX[i] + (2 * (uniqX[i + 1] - uniqX[i])) / 3);
-      }
-      sampleXs.push(uniqX[uniqX.length - 1]);
-    }
-
-    // RPN evaluation. `side` selects the one-sided limit at discontinuities
-    // (square/trapezoid vertical edges are two points sharing one x).
-    const globalStartX = uniqX[0];
-    const globalEndX = uniqX[uniqX.length - 1];
-
-    const evalAt = (x: number, side: 'left' | 'right'): number => {
-      const st: number[] = [];
-      for (const tk of rpn) {
-        if (tk.t === 'g') {
-          // A waveform is zero outside its own finite point range. Preserve the
-          // original shape at the overall calculation boundary, but expose the
-          // zero-valued side when another waveform starts/ends inside the range.
-          const preserveBoundary = side === 'left'
-            ? Math.abs(x - globalStartX) <= 1e-9
-            : Math.abs(x - globalEndX) <= 1e-9;
-          st.push(interpolateSide(x, groupPointsMap.get(tk.id)!, side, preserveBoundary));
-        } else if (tk.t === 'c') {
-          st.push(tk.v);
-        } else {
-          const b = st.pop() ?? 0;
-          const a = st.pop() ?? 0;
-          st.push(tk.v === '+' ? a + b : tk.v === '-' ? a - b : a * b);
-        }
-      }
-      return st[0] ?? 0;
-    };
-
-    // At each sample x, evaluate both one-sided limits; when they differ the source
-    // has a vertical edge there, so emit two points to preserve the edge in the result.
-    const resultPoints: Point[] = [];
-    for (const x of sampleXs) {
-      const yL = evalAt(x, 'left');
-      const yR = evalAt(x, 'right');
-      if (Number.isFinite(yL)) resultPoints.push({ x, y: yL });
-      if (Number.isFinite(yR) && Math.abs(yR - yL) > 1e-9) resultPoints.push({ x, y: yR });
-    }
-    if (resultPoints.length < 2) return;
+    const result = calculateArithmeticPoints(rpn, groups, segments);
+    if (!result.ok) return;
 
     // Build the group and segments directly and commit once (a single history entry)
     const newGroupId = generateId();
     const newSegments: LineSegment[] = [];
-    for (let i = 0; i < resultPoints.length - 1; i++) {
-      const start = resultPoints[i];
-      const end = resultPoints[i + 1];
+    for (let i = 0; i < result.points.length - 1; i++) {
+      const start = result.points[i];
+      const end = result.points[i + 1];
       if (start.x === end.x && start.y === end.y) continue; // skip zero-length segments
       newSegments.push({ id: generateId(), start, end, type: 'line', groupId: newGroupId });
     }
@@ -1644,7 +1405,7 @@ export function useWaveform() {
     if (data.axisConfig) {
       const a = data.axisConfig;
       setAxisConfig({
-        xUnit: a.xUnit ?? 't',
+        xUnit: a.xUnit ?? 'us',
         yUnit: a.yUnit ?? 'A',
         xGridSize: a.xGridSize || 0.5,
         yGridSize: a.yGridSize || 0.5,

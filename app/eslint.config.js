@@ -6,7 +6,14 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // These untouched shadcn templates are not imported by the application.
+  // Keep them available for future UI work without weakening checks on runtime code.
+  globalIgnores([
+    'dist',
+    'src/components/ui/carousel.tsx',
+    'src/components/ui/sidebar.tsx',
+    'src/hooks/use-mobile.ts',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -18,6 +25,14 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+  },
+  {
+    // shadcn component modules intentionally export CVA variants and helpers
+    // beside components; this is compatible with the generated template style.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])

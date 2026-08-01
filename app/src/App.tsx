@@ -3,19 +3,16 @@ import { useWaveform, BASE_SCALE, MIN_SCALE, MAX_SCALE } from '@/hooks/useWavefo
 import { WaveformCanvas } from '@/components/WaveformCanvas';
 import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Languages, Copy, ClipboardPaste } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Copy, ClipboardPaste } from 'lucide-react';
 import type { ParametricSine, Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
-import { NumberInput } from '@/components/NumberInput';
 import { CursorManager } from '@/components/CursorManager';
+import { AppHeader } from '@/components/AppHeader';
+import { AppStatusBar } from '@/components/AppStatusBar';
+import { AxisSettingsPanel } from '@/components/AxisSettingsPanel';
+import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
 import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
-
-// Site links
-const GITHUB_REPO_URL = 'https://github.com/CHESTNUT0061/WaveSketch';
-const WPD_URL = 'https://apps.automeris.io/wpd4/';
 
 type SineHandle = 'move' | 'amplitude' | 'period';
 
@@ -124,7 +121,7 @@ const ToolButton: React.FC<ToolButtonProps> = ({ toolMode, label, icon: Icon, to
 );
 
 function App() {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const {
     segments,
     groups,
@@ -250,16 +247,6 @@ function App() {
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
-
-  // Visit counter (Busuanzi): only loaded on the deployed domain; local dev is not counted
-  React.useEffect(() => {
-    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = 'https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, []);
 
   // Holding Space arms canvas panning
   React.useEffect(() => {
@@ -1035,27 +1022,11 @@ function App() {
   };
 
   return (
+    <div className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-[var(--ws-cream)] text-[var(--ws-ink)]">
+      <AppHeader />
 
-    <div className="min-h-screen bg-gray-100 p-2 sm:p-4">
-      <div className="w-full mx-auto max-w-[95%] lg:h-[92vh]">
-        {/* Title + language toggle */}
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-bold text-gray-800">WaveSketch</h1>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="flex items-center gap-1"
-            title={lang === 'zh' ? 'Switch to English' : '切换到中文'}
-          >
-            <Languages className="w-4 h-4" />
-            {lang === 'zh' ? 'EN' : '中文'}
-          </Button>
-        </div>
-
-        {/* Toolbar: wraps on narrow screens */}
-        <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
-          <div className="flex flex-wrap gap-2">
+      <div className="ws-surface mx-2 mb-2 flex shrink-0 flex-col gap-1 rounded-xl p-1.5 lg:mx-4 lg:flex-row lg:items-center lg:gap-2">
+          <div className="ws-command-row ws-scroll-fade" aria-label={t('drawingTools')}>
             <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} tooltip={TOOLTIPS.select} active={mode === 'select'} onSelect={setMode} />
             <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} tooltip={TOOLTIPS.draw} active={mode === 'draw'} onSelect={setMode} />
             <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} tooltip={TOOLTIPS.edit} active={mode === 'edit'} onSelect={setMode} />
@@ -1084,7 +1055,10 @@ function App() {
               </Button>
             </TooltipButton>
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          <div className="mx-1 hidden h-6 w-px shrink-0 bg-[var(--ws-border)] lg:block" />
+
+          <div className="ws-command-row ws-scroll-fade lg:ml-auto" aria-label={t('dataAndHistoryTools')}>
             <TooltipButton tooltip={TOOLTIPS.svg}>
               <Button variant="outline" size="sm" onClick={() => downloadSVG()} className="flex items-center gap-1">
                 <Image className="w-4 h-4" />SVG
@@ -1120,16 +1094,15 @@ function App() {
               </Button>
             </TooltipButton>
           </div>
-        </div>
+      </div>
 
-        {/* Main content: stacked vertically on narrow screens, side-by-side on desktop */}
-        <div className="flex flex-col lg:flex-row gap-4 lg:h-[calc(92vh-120px)]">
-          {/* Left: canvas + axis settings */}
-          <div className="flex flex-col gap-3 w-full lg:w-3/4">
-            {/* Canvas */}
-            <div className="relative bg-white rounded-lg shadow h-[55vh] lg:h-auto lg:flex-1" style={{ touchAction: 'none', overflow: 'hidden' }}>
+      <main className="min-h-0 flex-1 px-2 pb-2 lg:px-4">
+        <WorkspaceShell
+          main={(
+          <div className="flex h-full min-h-0 w-full flex-col gap-2">
+            <div className="ws-surface relative min-h-0 flex-1 overflow-hidden rounded-xl bg-white" style={{ touchAction: 'none' }}>
               {/* Zoom control (bottom-left) */}
-              <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-white/90 rounded-lg px-2 py-1 shadow border">
+              <div className="ws-control-overlay absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-full px-2 py-1">
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleZoom(0.8)}>−</Button>
                 <span className="text-xs font-mono min-w-14 text-center whitespace-nowrap">
                   {Math.abs(viewport.scaleX - viewport.scaleY) < 1e-9
@@ -1148,12 +1121,12 @@ function App() {
                 >
                   <Hand className="w-3.5 h-3.5" />{t('pan')}
                 </Button>
-                <span className="hidden sm:inline text-[10px] text-gray-400 pl-1 border-l">{t('panHint')}</span>
+                <span className="hidden border-l border-[var(--ws-border)] pl-1 text-[10px] text-[var(--ws-light)] xl:inline">{t('panHint')}</span>
               </div>
 
               {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (
-                <div className="absolute top-3 right-3 z-10 bg-black/70 text-white px-3 py-2 rounded text-sm font-mono">
+                <div className="absolute right-3 top-3 z-10 rounded-lg bg-[var(--ws-ink)]/80 px-3 py-2 font-mono text-sm text-white shadow-lg backdrop-blur-sm">
                   <div>ΔX: {moveOffset.x >= 0 ? '+' : ''}{(moveOffset.x / axisConfig.xGridSize).toFixed(1)} {t('cells')}</div>
                   <div>ΔY: {moveOffset.y >= 0 ? '+' : ''}{(moveOffset.y / axisConfig.yGridSize).toFixed(1)} {t('cells')}</div>
                 </div>
@@ -1161,8 +1134,8 @@ function App() {
 
               {/* Paste-preview offset readout (top-right of canvas) */}
               {isCopyPreview && selectCopyOffset && (
-                <div className="absolute top-3 right-3 z-10 bg-blue-600/90 text-white px-3 py-2 rounded text-sm font-mono shadow-lg">
-                  <div className="text-xs text-blue-200 mb-1">{t('copyPreviewHint')}</div>
+                <div className="absolute right-3 top-3 z-10 rounded-lg bg-primary/90 px-3 py-2 font-mono text-sm text-primary-foreground shadow-lg backdrop-blur-sm">
+                  <div className="mb-1 text-xs text-primary-foreground/70">{t('copyPreviewHint')}</div>
                   <div>ΔX: {(selectCopyOffset.x / axisConfig.xGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.x >= 0 ? '+' : ''}{selectCopyOffset.x.toFixed(2)})</div>
                   <div>ΔY: {(selectCopyOffset.y / axisConfig.yGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.y >= 0 ? '+' : ''}{selectCopyOffset.y.toFixed(2)})</div>
                 </div>
@@ -1171,18 +1144,18 @@ function App() {
               {mode === 'select' && hoverInfo && (
                 <div
                   ref={hoverCardRef}
-                  className="absolute z-20 pointer-events-none min-w-36 max-w-64 max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white/95 px-2.5 py-2 text-xs text-gray-700 shadow-lg backdrop-blur-sm"
+                  className="ws-control-overlay pointer-events-none absolute z-20 max-h-48 min-w-36 max-w-64 overflow-y-auto rounded-lg px-2.5 py-2 text-xs text-[var(--ws-ink)]"
                   style={{ left: hoverCardPosition.x, top: hoverCardPosition.y }}
                 >
                   {hoverInfo.gridPoint && (
                     <div className="font-mono whitespace-nowrap">
-                      <span className="font-sans text-gray-400 mr-1">{t('hoverGridPoint')}</span>
+                      <span className="mr-1 font-sans text-[var(--ws-light)]">{t('hoverGridPoint')}</span>
                       X={formatGridValue(hoverInfo.gridPoint.x, axisConfig.xGridSize)}{axisConfig.xUnit ? ` ${axisConfig.xUnit}` : ''}, Y={formatGridValue(hoverInfo.gridPoint.y, axisConfig.yGridSize)}{axisConfig.yUnit ? ` ${axisConfig.yUnit}` : ''}
                     </div>
                   )}
                   {hoverInfo.waveforms.length > 0 && (
                     <div className={hoverInfo.gridPoint ? 'mt-1' : ''}>
-                      <div className="text-gray-400 mb-0.5">{t('hoverWaveform')}</div>
+                      <div className="mb-0.5 text-[var(--ws-light)]">{t('hoverWaveform')}</div>
                       {hoverInfo.waveforms.map((waveform, index) => (
                         <div key={waveform.id ?? `ungrouped-${index}`} className="flex items-center gap-1.5 py-0.5">
                           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: waveform.color }} />
@@ -1226,48 +1199,10 @@ function App() {
               />
             </div>
 
-            {/* Axis settings */}
-            <div className="bg-white p-3 rounded-lg shadow">
-              <div className="text-sm font-medium mb-2 text-gray-700">{t('axisSettings')}</div>
-              <div className="flex flex-wrap items-center gap-y-2">
-                {/* Y axis (left) */}
-                <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('yUnit')}</Label>
-                    <Input value={axisConfig.yUnit} onChange={(e) => setAxisConfig({ ...axisConfig, yUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
-                    <NumberInput step="0.1" min={0.01} value={axisConfig.yGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, yGridSize: v })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
-                    <NumberInput step="0.5" min={0.01} value={axisConfig.yMajorGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, yMajorGridSize: v })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                </div>
-                {/* Divider (desktop only) */}
-                <div className="hidden lg:block w-px h-8 bg-gray-300 mx-4" />
-                {/* X axis (right) */}
-                <div className="flex flex-wrap items-center gap-3 flex-1 min-w-fit">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('xUnit')}</Label>
-                    <Input value={axisConfig.xUnit} onChange={(e) => setAxisConfig({ ...axisConfig, xUnit: e.target.value })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('minorGrid')}</Label>
-                    <NumberInput step="0.1" min={0.01} value={axisConfig.xGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, xGridSize: v })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm text-gray-500 whitespace-nowrap">{t('majorGrid')}</Label>
-                    <NumberInput step="0.5" min={0.01} value={axisConfig.xMajorGridSize} onValueChange={(v) => setAxisConfig({ ...axisConfig, xMajorGridSize: v })} className="h-7 w-14 text-sm px-2" />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AxisSettingsPanel axisConfig={axisConfig} onChange={setAxisConfig} />
           </div>
-
-          {/* Right: waveform group management */}
-          <div className="w-full lg:w-1/4 lg:h-full">
+          )}
+          inspector={(
             <Toolbar
               groups={groups}
               segments={segments}
@@ -1291,37 +1226,11 @@ function App() {
               isCopyPreview={isCopyPreview}
               clipboardSegments={clipboardSegments}
             />
-          </div>
-        </div>
+          )}
+        />
+      </main>
 
-        {/* Footer: visit counter + links */}
-        <div className="flex justify-between items-center mt-2 px-1 text-xs text-gray-400">
-          <div className="flex gap-2">
-            {/* Busuanzi counter: hidden until the script loads */}
-            <span id="busuanzi_container_site_pv" style={{ display: 'none' }}>
-              {t('visitCountPrefix')} <span id="busuanzi_value_site_pv" /> {t('visitCountSuffix')}
-            </span>
-            <span id="busuanzi_container_site_uv" style={{ display: 'none' }}>
-              {t('visitorPrefix')} <span id="busuanzi_value_site_uv" /> {t('visitorSuffix')}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-4">
-            <a href={WPD_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-              {t('linkWpd')}
-            </a>
-            {GITHUB_REPO_URL && (
-              <a href={`${GITHUB_REPO_URL}/issues`} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-                {t('linkFeedback')}
-              </a>
-            )}
-            {GITHUB_REPO_URL && (
-              <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" className="hover:text-gray-600 underline">
-                {t('linkGithub')}
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
+      <AppStatusBar />
     </div>
   );
 }

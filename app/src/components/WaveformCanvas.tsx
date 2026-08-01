@@ -2,7 +2,7 @@ import React, { useEffect, useCallback } from 'react';
 import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, ZoomAxis } from '@/types/waveform';
 import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
 import { groupsBottomToTop } from '@/lib/waveformOrder';
-import { cursorValueText } from '@/lib/axisCursor';
+import { cursorValueText, layoutCursorLabel } from '@/lib/axisCursor';
 
 interface WaveformCanvasProps {
   segments: LineSegment[];
@@ -395,6 +395,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 4]);
     ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
     for (const cursor of cursors) {
@@ -416,23 +417,20 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       }
       ctx.stroke();
 
-      const text = cursorValueText(cursor, axisConfig);
-      const textWidth = ctx.measureText(text).width;
-      const boxWidth = textWidth + 8;
-      const boxHeight = 18;
-      const boxX = cursor.axis === 'x'
-        ? Math.max(2, Math.min(cssW - boxWidth - 2, screen.x + 4))
-        : 4;
-      const boxY = cursor.axis === 'x'
-        ? 4
-        : Math.max(2, Math.min(cssH - boxHeight - 2, screen.y - boxHeight - 3));
+      const layout = layoutCursorLabel(
+        cursorValueText(cursor, axisConfig),
+        cursor.axis,
+        position,
+        { left: 0, top: 0, right: cssW, bottom: cssH },
+        value => ctx.measureText(value).width,
+      );
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(layout.boxX, layout.boxY, layout.boxWidth, layout.boxHeight);
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxWidth - 1, boxHeight - 1);
+      ctx.strokeRect(layout.boxX + 0.5, layout.boxY + 0.5, Math.max(0, layout.boxWidth - 1), Math.max(0, layout.boxHeight - 1));
       ctx.fillStyle = '#000000';
-      ctx.fillText(text, boxX + 4, boxY + 3);
+      ctx.fillText(layout.text, layout.textX, layout.textY);
       ctx.strokeStyle = '#000000';
       ctx.setLineDash([6, 4]);
     }

@@ -1,13 +1,13 @@
 {
   "name": "wavesketch",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test src/lib/digitalLogic.test.ts src/lib/svgLegend.test.ts src/lib/waveformGeometry.test.ts src/lib/axisCursor.test.ts src/lib/waveformDeletion.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/digitalLogic.test.ts src/lib/svgLegend.test.ts src/lib/waveformGeometry.test.ts src/lib/axisCursor.test.ts src/lib/waveformDeletion.test.ts src/lib/waveformGeneration.test.ts src/lib/waveformArithmetic.test.ts src/lib/siteCounter.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -50,7 +50,7 @@
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.70.0",
-    "react-resizable-panels": "^4.2.2",
+    "react-resizable-panels": "^4.12.1",
     "recharts": "^2.15.4",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
@@ -65,7 +65,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "postcss": "^8.5.6",
