@@ -90,7 +90,7 @@ const S = {
   linkWpdShort: { zh: '曲线取点', en: 'Curve digitizer' },
   linkFeedback: { zh: '意见反馈', en: 'Feedback' },
   linkGithub: { zh: 'GitHub', en: 'GitHub' },
-  visitCountShort: { zh: '使用', en: 'Uses' },
+  visitCountShort: { zh: '访问', en: 'Visits' },
   visitorShort: { zh: '访客', en: 'Visitors' },
   relatedLinks: { zh: '相关链接', en: 'Related links' },
   recommendedLinks: { zh: '推荐链接', en: 'Recommended links' },

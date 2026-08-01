@@ -11,11 +11,64 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/i18n';
 import { GITHUB_ISSUES_URL, GITHUB_REPO_URL, WPD_URL } from '@/lib/siteLinks';
+import { isProductionCounterHost, parseCounterText } from '@/lib/siteCounter';
+
+const BUSUANZI_SCRIPT_ID = 'wavesketch-busuanzi';
+
+interface VisitCounts {
+  pageViews: number;
+  visitors: number;
+}
+
+function readCounterValue(element: HTMLElement | null): number | null {
+  return parseCounterText(element?.textContent);
+}
 
 export function AppStatusBar() {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [visitCounts, setVisitCounts] = React.useState<VisitCounts | null>(null);
   const mascotSrc = `${import.meta.env.BASE_URL}${menuOpen ? 'chestnut-open.png' : 'chestnut-closed.png'}`;
+
+  React.useEffect(() => {
+    if (!isProductionCounterHost(window.location.hostname)) return;
+
+    const pageViewsElement = document.getElementById('busuanzi_value_site_pv');
+    const visitorsElement = document.getElementById('busuanzi_value_site_uv');
+
+    const updateCounts = () => {
+      const pageViews = readCounterValue(pageViewsElement);
+      const visitors = readCounterValue(visitorsElement);
+      if (pageViews === null || visitors === null) return;
+      setVisitCounts({ pageViews, visitors });
+      window.clearTimeout(timeoutId);
+    };
+
+    const observer = new MutationObserver(updateCounts);
+    if (pageViewsElement) observer.observe(pageViewsElement, { childList: true, characterData: true, subtree: true });
+    if (visitorsElement) observer.observe(visitorsElement, { childList: true, characterData: true, subtree: true });
+
+    let script = document.getElementById(BUSUANZI_SCRIPT_ID) as HTMLScriptElement | null;
+    const createdScript = !script;
+    if (!script) {
+      script = document.createElement('script');
+      script.id = BUSUANZI_SCRIPT_ID;
+      script.async = true;
+      script.src = 'https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
+      document.body.appendChild(script);
+    }
+    script.addEventListener('load', updateCounts);
+    script.addEventListener('error', () => setVisitCounts(null), { once: true });
+    const timeoutId = window.setTimeout(() => setVisitCounts(null), 8000);
+    updateCounts();
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timeoutId);
+      script?.removeEventListener('load', updateCounts);
+      if (createdScript) script?.remove();
+    };
+  }, []);
 
   return (
     <footer className="grid min-h-10 shrink-0 grid-cols-[1fr_auto] items-center gap-x-3 gap-y-0.5 border-t border-[var(--ws-border)] bg-white/40 px-3 py-1 text-xs sm:grid-cols-[1fr_auto_1fr] sm:px-5">
@@ -78,15 +131,20 @@ export function AppStatusBar() {
         <span className="hidden w-14 border-t border-dashed border-[#713b20]/60 md:block" aria-hidden="true" />
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-        <span id="busuanzi_container_site_pv" style={{ display: 'none' }} className="rounded-full border border-[var(--ws-border)] bg-[var(--ws-card)] px-2 py-1 text-[var(--ws-muted)]">
-          <MousePointerClick className="mr-1 inline size-3 text-primary" />
-          {t('visitCountShort')} <strong id="busuanzi_value_site_pv" className="ws-display text-[var(--ws-ink)]" />
-        </span>
-        <span id="busuanzi_container_site_uv" style={{ display: 'none' }} className="rounded-full border border-[var(--ws-border)] bg-[var(--ws-card)] px-2 py-1 text-[var(--ws-muted)]">
-          <Users className="mr-1 inline size-3 text-primary" />
-          {t('visitorShort')} <strong id="busuanzi_value_site_uv" className="ws-display text-[var(--ws-ink)]" />
-        </span>
+      <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end sm:col-start-3">
+        {visitCounts && (
+          <span className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--ws-border)] bg-[var(--ws-card)] px-2.5 py-1 text-[11px] tabular-nums text-[var(--ws-muted)] shadow-sm sm:text-xs" role="status">
+            <MousePointerClick className="size-3 shrink-0 text-primary" />
+            <span>{t('visitCountShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.pageViews.toLocaleString()}</strong></span>
+            <span className="text-[var(--ws-light)]" aria-hidden="true">·</span>
+            <Users className="size-3 shrink-0 text-primary" />
+            <span>{t('visitorShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.visitors.toLocaleString()}</strong></span>
+          </span>
+        )}
+        <div className="hidden" aria-hidden="true">
+          <span id="busuanzi_container_site_pv"><span id="busuanzi_value_site_pv" /></span>
+          <span id="busuanzi_container_site_uv"><span id="busuanzi_value_site_uv" /></span>
+        </div>
       </div>
     </footer>
   );

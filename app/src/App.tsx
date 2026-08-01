@@ -248,16 +248,6 @@ function App() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
 
-  // Visit counter (Busuanzi): only loaded on the deployed domain; local dev is not counted
-  React.useEffect(() => {
-    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = 'https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, []);
-
   // Holding Space arms canvas panning
   React.useEffect(() => {
     const isTypingTarget = (target: EventTarget | null) =>
