@@ -135,12 +135,17 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
         </Sheet>
       ) : (
         <Drawer open={mobileOpen} onOpenChange={setMobileOpen} direction="bottom">
-          <DrawerContent className="max-h-[85dvh] border-[var(--ws-border)] bg-[var(--ws-cream)]">
+          <DrawerContent className="h-[85dvh] max-h-[85dvh] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]">
             <DrawerHeader className="sr-only">
               <DrawerTitle>{t('groupPanelTitle')}</DrawerTitle>
               <DrawerDescription>{t('inspectorDescription')}</DrawerDescription>
             </DrawerHeader>
-            <div className="min-h-0 flex-1 overflow-hidden p-3 pt-2">{inspector}</div>
+            <div
+              className="min-h-0 flex-1 overflow-hidden p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2"
+              data-vaul-no-drag
+            >
+              {inspector}
+            </div>
           </DrawerContent>
         </Drawer>
       )}

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WaveSketch 响应式预览</title>
+    <style>
+      :root {
+        color: #172033;
+        background: #e9edf5;
+        font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .toolbar {
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 10px;
+        padding: 10px 14px;
+        border-bottom: 1px solid #cbd3df;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 4px 18px rgba(23, 32, 51, 0.08);
+      }
+
+      .brand {
+        align-self: center;
+        margin-right: 6px;
+        color: #1e2bfa;
+        font-size: 17px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      label {
+        display: grid;
+        gap: 4px;
+        color: #64748b;
+        font-size: 11px;
+      }
+
+      select,
+      input,
+      button {
+        height: 34px;
+        border: 1px solid #cbd3df;
+        border-radius: 9px;
+        background: #fff;
+        color: #172033;
+        font: inherit;
+      }
+
+      select,
+      input {
+        padding: 0 10px;
+      }
+
+      input {
+        width: 88px;
+      }
+
+      button {
+        cursor: pointer;
+        padding: 0 12px;
+        transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+      }
+
+      button:hover,
+      button:focus-visible {
+        border-color: #1e2bfa;
+        color: #1e2bfa;
+        outline: none;
+      }
+
+      button.primary {
+        border-color: #1e2bfa;
+        background: #1e2bfa;
+        color: #fff;
+      }
+
+      .size-readout {
+        align-self: center;
+        margin-left: auto;
+        color: #64748b;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .stage {
+        position: relative;
+        min-height: 0;
+        overflow: auto;
+        padding: 28px;
+        background:
+          linear-gradient(45deg, #dce2ec 25%, transparent 25%) 0 0 / 20px 20px,
+          linear-gradient(-45deg, #dce2ec 25%, transparent 25%) 0 10px / 20px 20px,
+          linear-gradient(45deg, transparent 75%, #dce2ec 75%) 10px -10px / 20px 20px,
+          linear-gradient(-45deg, transparent 75%, #dce2ec 75%) -10px 0 / 20px 20px,
+          #e9edf5;
+      }
+
+      .frame-space {
+        position: relative;
+        margin: 0 auto;
+        transition: width 180ms ease, height 180ms ease;
+      }
+
+      .device-frame {
+        position: absolute;
+        left: 0;
+        top: 0;
+        box-sizing: content-box;
+        overflow: hidden;
+        border: 10px solid #172033;
+        border-radius: 22px;
+        background: #fff;
+        box-shadow: 0 18px 48px rgba(23, 32, 51, 0.25);
+        transform-origin: top left;
+        transition: width 180ms ease, height 180ms ease, transform 180ms ease;
+      }
+
+      iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #f1f2f4;
+      }
+
+      @media (max-width: 760px) {
+        .toolbar {
+          align-items: end;
+          padding: 8px;
+        }
+
+        .brand,
+        .size-readout {
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .stage {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div class="brand">WaveSketch 响应式预览</div>
+
+      <label>
+        设备预设
+        <select id="preset">
+          <option value="390x844">手机竖屏 · 390 × 844</option>
+          <option value="844x390">手机横屏 · 844 × 390</option>
+          <option value="430x932">大屏手机 · 430 × 932</option>
+          <option value="768x1024">平板竖屏 · 768 × 1024</option>
+          <option value="1024x768">平板横屏 · 1024 × 768</option>
+          <option value="1280x720">桌面 · 1280 × 720</option>
+          <option value="1440x900">桌面 · 1440 × 900</option>
+          <option value="custom">自定义</option>
+        </select>
+      </label>
+
+      <label>
+        宽度
+        <input id="width" type="number" min="320" max="2560" step="1" value="390" />
+      </label>
+
+      <label>
+        高度
+        <input id="height" type="number" min="320" max="2560" step="1" value="844" />
+      </label>
+
+      <button id="rotate" type="button">↔ 横竖屏互换</button>
+      <button id="fit" type="button" class="primary" aria-pressed="true">自动适应：开</button>
+      <button id="reload" type="button">刷新应用</button>
+
+      <div id="readout" class="size-readout">视口 390 × 844 · 缩放 100%</div>
+    </div>
+
+    <main id="stage" class="stage">
+      <div id="frameSpace" class="frame-space">
+        <div id="deviceFrame" class="device-frame">
+          <iframe id="preview" src="./" title="WaveSketch 响应式预览"></iframe>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const preset = document.getElementById('preset');
+      const widthInput = document.getElementById('width');
+      const heightInput = document.getElementById('height');
+      const rotateButton = document.getElementById('rotate');
+      const fitButton = document.getElementById('fit');
+      const reloadButton = document.getElementById('reload');
+      const stage = document.getElementById('stage');
+      const frameSpace = document.getElementById('frameSpace');
+      const deviceFrame = document.getElementById('deviceFrame');
+      const preview = document.getElementById('preview');
+      const readout = document.getElementById('readout');
+
+      let autoFit = true;
+
+      function clamp(value, min, max, fallback) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+      }
+
+      function updatePreview() {
+        const width = clamp(widthInput.value, 320, 2560, 390);
+        const height = clamp(heightInput.value, 320, 2560, 844);
+        widthInput.value = String(width);
+        heightInput.value = String(height);
+
+        const availableWidth = Math.max(280, stage.clientWidth - 56);
+        const availableHeight = Math.max(280, stage.clientHeight - 56);
+        const fitScale = Math.min(1, availableWidth / (width + 20), availableHeight / (height + 20));
+        const scale = autoFit ? fitScale : 1;
+
+        deviceFrame.style.width = `${width}px`;
+        deviceFrame.style.height = `${height}px`;
+        deviceFrame.style.transform = `scale(${scale})`;
+        frameSpace.style.width = `${(width + 20) * scale}px`;
+        frameSpace.style.height = `${(height + 20) * scale}px`;
+        readout.textContent = `视口 ${width} × ${height} · 缩放 ${Math.round(scale * 100)}%`;
+      }
+
+      preset.addEventListener('change', () => {
+        if (preset.value === 'custom') return;
+        const [width, height] = preset.value.split('x');
+        widthInput.value = width;
+        heightInput.value = height;
+        updatePreview();
+      });
+
+      for (const input of [widthInput, heightInput]) {
+        input.addEventListener('input', () => {
+          preset.value = 'custom';
+          updatePreview();
+        });
+      }
+
+      rotateButton.addEventListener('click', () => {
+        const width = widthInput.value;
+        widthInput.value = heightInput.value;
+        heightInput.value = width;
+        preset.value = 'custom';
+        updatePreview();
+      });
+
+      fitButton.addEventListener('click', () => {
+        autoFit = !autoFit;
+        fitButton.classList.toggle('primary', autoFit);
+        fitButton.setAttribute('aria-pressed', String(autoFit));
+        fitButton.textContent = `自动适应：${autoFit ? '开' : '关'}`;
+        updatePreview();
+      });
+
+      reloadButton.addEventListener('click', () => preview.contentWindow.location.reload());
+      window.addEventListener('resize', updatePreview);
+      updatePreview();
+    </script>
+  </body>
+</html>

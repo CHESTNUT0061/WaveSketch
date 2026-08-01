@@ -28,7 +28,8 @@ export function AppStatusBar() {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [visitCounts, setVisitCounts] = React.useState<VisitCounts | null>(null);
-  const mascotSrc = `${import.meta.env.BASE_URL}${menuOpen ? 'chestnut-open.png' : 'chestnut-closed.png'}`;
+  const closedMascotSrc = `${import.meta.env.BASE_URL}chestnut-closed.png`;
+  const openMascotSrc = `${import.meta.env.BASE_URL}chestnut-open.png`;
 
   React.useEffect(() => {
     if (!isProductionCounterHost(window.location.hostname)) return;
@@ -90,16 +91,24 @@ export function AppStatusBar() {
               aria-label={t('openMascotMenu')}
               title={t('openMascotMenu')}
             >
-              <img
-                src={mascotSrc}
-                alt=""
-                draggable={false}
-                className={`ws-mascot-image pointer-events-none absolute max-w-none transition-all duration-200 ${
-                  menuOpen
-                    ? 'left-1/2 top-1/2 w-[50px] -translate-x-1/2 -translate-y-1/2'
-                    : 'left-1/2 top-1/2 w-[33px] -translate-x-1/2 -translate-y-1/2'
-                }`}
-              />
+              <span className="pointer-events-none absolute inset-0" aria-hidden="true">
+                <img
+                  src={closedMascotSrc}
+                  alt=""
+                  draggable={false}
+                  className={`ws-mascot-image absolute left-1/2 top-1/2 w-[33px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
+                    menuOpen ? '-rotate-6 scale-75 opacity-0' : 'rotate-0 scale-100 opacity-100'
+                  }`}
+                />
+                <img
+                  src={openMascotSrc}
+                  alt=""
+                  draggable={false}
+                  className={`ws-mascot-image absolute left-1/2 top-1/2 w-[50px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
+                    menuOpen ? 'rotate-0 scale-100 opacity-100' : 'rotate-6 scale-75 opacity-0'
+                  }`}
+                />
+              </span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center" sideOffset={7} collisionPadding={10} className="min-w-40 border-[var(--ws-border)] bg-white/95">
