@@ -156,6 +156,10 @@ function appendResultPoint(points: Point[], point: Point) {
   points.push(point);
 }
 
+function normalizeResultValue(value: number): number {
+  return Math.abs(value) <= EPSILON ? 0 : value;
+}
+
 /**
  * Evaluates arithmetic RPN over the union of all input event times. At a true
  * discontinuity it emits exactly two points with the same x, preserving a
@@ -186,7 +190,7 @@ export function calculateArithmeticPoints(
   const globalStart = eventXs[0];
   const globalEnd = eventXs[eventXs.length - 1];
 
-  const evaluateExpression = (x: number, side: 'left' | 'right') => {
+  const evaluateExpression = (x: number, side: 'left' | 'right'): number | null => {
     const stack: number[] = [];
     for (const token of rpn) {
       if (token.t === 'g') {
@@ -197,21 +201,27 @@ export function calculateArithmeticPoints(
       } else if (token.t === 'c') {
         stack.push(token.v);
       } else {
-        const right = stack.pop() ?? 0;
-        const left = stack.pop() ?? 0;
+        const right = stack.pop();
+        const left = stack.pop();
+        if (right === undefined || left === undefined) return null;
         stack.push(token.v === '+' ? left + right : token.v === '-' ? left - right : left * right);
       }
     }
-    return stack[0] ?? 0;
+    return stack.length === 1 ? stack[0] : null;
   };
 
   const resultPoints: Point[] = [];
   for (const x of sampleXs) {
     const left = evaluateExpression(x, 'left');
     const right = evaluateExpression(x, 'right');
-    if (Number.isFinite(left)) appendResultPoint(resultPoints, { x, y: left });
-    if (Number.isFinite(right) && Math.abs(right - left) > EPSILON) {
-      appendResultPoint(resultPoints, { x, y: right });
+    if (left === null || right === null || !Number.isFinite(left) || !Number.isFinite(right)) {
+      return { ok: false, points: [] };
+    }
+    const normalizedLeft = normalizeResultValue(left);
+    const normalizedRight = normalizeResultValue(right);
+    appendResultPoint(resultPoints, { x, y: normalizedLeft });
+    if (Math.abs(normalizedRight - normalizedLeft) > EPSILON) {
+      appendResultPoint(resultPoints, { x, y: normalizedRight });
     }
   }
 

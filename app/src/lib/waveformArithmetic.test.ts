@@ -123,3 +123,41 @@ test('quadratic curves are sampled on the curve rather than through the control 
   const midpoint = trace.find(point => point.x === 1);
   assert.deepEqual(midpoint, { x: 1, y: 1 });
 });
+
+test('rejects malformed arithmetic RPN instead of treating missing operands as zero', () => {
+  const a = ramp('a', 0, 1);
+
+  assert.deepEqual(calculate([
+    { t: 'op', v: '+' },
+  ], [a]), { ok: false, points: [] });
+
+  assert.deepEqual(calculate([
+    { t: 'g', id: 'a' }, { t: 'g', id: 'a' },
+  ], [a]), { ok: false, points: [] });
+});
+
+test('removes floating-point noise from a balanced six-phase triangle sum', () => {
+  const inputs = Array.from({ length: 6 }, (_, index) => {
+    const id = `triangle-${index}`;
+    return makeGroup(id, buildWaveformPoints('triangle', {
+      amplitude: 1,
+      period: 2,
+      dutyCycle: 50,
+      totalCycles: 2,
+      startTime: 0,
+      phaseShift: index * 60,
+      offset: 0,
+    }));
+  });
+  const rpn: CalcRpnToken[] = [];
+  for (const input of inputs) {
+    rpn.push({ t: 'g', id: input.group.id });
+    if (rpn.length > 1) rpn.push({ t: 'op', v: '+' });
+  }
+
+  const result = calculate(rpn, inputs);
+  assert.equal(result.ok, true);
+  assert.equal(result.points.some(point => Math.abs(point.y) > 1e-9), true);
+  assert.equal(result.points.some(point => point.y === 0), true);
+  assert.equal(result.points.every(point => Number.isFinite(point.y)), true);
+});

@@ -2,6 +2,13 @@
 
 All notable changes to WaveSketch are documented in this file.
 
+## [1.0.2] - 2026-08-02
+
+### Fixed
+
+- Arithmetic evaluation now rejects malformed RPN expressions instead of silently filling missing operands with zero.
+- Floating-point noise near zero is normalized in arithmetic results to prevent false waveform spikes and sliver edges.
+
 ## [1.0.1] - 2026-08-02
 
 ### Added
