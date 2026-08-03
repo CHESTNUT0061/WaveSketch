@@ -56,6 +56,7 @@ interface WaveformGeneratorProps {
   onGenerateTemplate: (template: DcdcTemplate, params: DcdcTemplateParams) => void;
   groups: WaveformGroup[];
   onExtendMultiPhase: (groupId: string, phaseCount: number, period: number) => void;
+  isNarrowViewport?: boolean;
 }
 
 // Types that can have a complementary drive signal
@@ -87,7 +88,13 @@ const DCDC_TEMPLATE_KEYS: { value: DcdcTemplate; key: StringKey }[] = [
   { value: 'boost', key: 'dcdcBoostShort' },
 ];
 
-export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate, onGenerateTemplate, groups, onExtendMultiPhase }) => {
+export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({
+  onGenerate,
+  onGenerateTemplate,
+  groups,
+  onExtendMultiPhase,
+  isNarrowViewport = false,
+}) => {
   const { t } = useI18n();
   const waveLabel = (v: WaveformType) => t(WAVE_TYPE_KEYS.find(w => w.value === v)!.key);
   const dcdcLabel = (v: DcdcTemplate) => t(DCDC_TEMPLATE_KEYS.find(item => item.value === v)!.key);
@@ -201,43 +208,77 @@ export const WaveformGenerator: React.FC<WaveformGeneratorProps> = ({ onGenerate
               <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>{t('generatorBasic')}</DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-48">
-                  {WAVE_TYPE_KEYS.map(w => (
-                    <DropdownMenuItem
-                      key={w.value}
-                      onSelect={() => {
-                        setCategory('basic');
-                        setType(w.value);
-                      }}
-                    >
-                      {t(w.key)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>{t('generatorDcdc')}</DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-48">
-                  {DCDC_TEMPLATE_KEYS.map(item => (
-                    <DropdownMenuItem
-                      key={item.value}
-                      onSelect={() => {
-                        setCategory('dcdc');
-                        setDcdcTemplate(item.value);
-                      }}
-                    >
-                      {t(item.key)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
+          <DropdownMenuContent
+            align="start"
+            className="w-56 max-w-[calc(100vw-1rem)] max-h-[min(70dvh,var(--radix-dropdown-menu-content-available-height))]"
+          >
+            {isNarrowViewport ? (
+              <>
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t('generatorBasic')}</div>
+                {WAVE_TYPE_KEYS.map(w => (
+                  <DropdownMenuItem
+                    key={w.value}
+                    onSelect={() => {
+                      setCategory('basic');
+                      setType(w.value);
+                    }}
+                  >
+                    {t(w.key)}
+                  </DropdownMenuItem>
+                ))}
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t('generatorDcdc')}</div>
+                {DCDC_TEMPLATE_KEYS.map(item => (
+                  <DropdownMenuItem
+                    key={item.value}
+                    onSelect={() => {
+                      setCategory('dcdc');
+                      setDcdcTemplate(item.value);
+                    }}
+                  >
+                    {t(item.key)}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            ) : (
+              <>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>{t('generatorBasic')}</DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-48">
+                      {WAVE_TYPE_KEYS.map(w => (
+                        <DropdownMenuItem
+                          key={w.value}
+                          onSelect={() => {
+                            setCategory('basic');
+                            setType(w.value);
+                          }}
+                        >
+                          {t(w.key)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>{t('generatorDcdc')}</DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-48">
+                      {DCDC_TEMPLATE_KEYS.map(item => (
+                        <DropdownMenuItem
+                          key={item.value}
+                          onSelect={() => {
+                            setCategory('dcdc');
+                            setDcdcTemplate(item.value);
+                          }}
+                        >
+                          {t(item.key)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

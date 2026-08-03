@@ -425,7 +425,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <div className="ws-surface ws-inspector-scroll min-h-0 h-full w-full touch-pan-y overscroll-contain overflow-y-auto rounded-xl p-3 sm:p-4">
+    <div
+      className="ws-surface ws-inspector-scroll min-h-0 h-full w-full touch-pan-y overscroll-contain overflow-y-auto rounded-xl p-3 sm:p-4"
+      data-vaul-no-drag
+    >
       {/* Title */}
       <h2 className="ws-display mb-4 pr-8 text-lg font-bold text-[var(--ws-ink)]">{t('groupPanelTitle')}</h2>
 
@@ -543,13 +546,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
-                    side={isNarrowViewport ? 'bottom' : 'left'}
+                    side={isNarrowViewport ? 'top' : 'left'}
                     align="start"
                     sideOffset={8}
                     collisionPadding={8}
                     data-vaul-no-drag
                     className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[min(70dvh,var(--radix-popover-content-available-height))] touch-pan-y overscroll-contain overflow-x-hidden overflow-y-auto p-3"
                     onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerMove={(e) => e.stopPropagation()}
                   >
                     <ColorPicker
                       group={group}
@@ -693,7 +698,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Tab content */}
       <div className="mb-4">
         {activeTab === 'generator' && (
-          <WaveformGenerator onGenerate={onGenerateWaveform} onGenerateTemplate={onGenerateTemplate} groups={groups} onExtendMultiPhase={onExtendMultiPhase} />
+          <WaveformGenerator
+            onGenerate={onGenerateWaveform}
+            onGenerateTemplate={onGenerateTemplate}
+            groups={groups}
+            onExtendMultiPhase={onExtendMultiPhase}
+            isNarrowViewport={isNarrowViewport}
+          />
         )}
         {activeTab === 'calculator' && (
           <WaveformCalculator groups={groups} segments={segments} onCalculate={onCalculateWaveforms} onCalculateLogic={onCalculateLogic} />
