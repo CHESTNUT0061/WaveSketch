@@ -481,10 +481,13 @@ export function useWaveform() {
   // Add a segment (internal, no history entry)
   const addSegmentInternal = useCallback((start: Point, end: Point, type: 'line' | 'curve' = 'line', targetGroupId?: string): string => {
     let effectiveGroupId = targetGroupId || selectedGroup;
-    
-    // Create a default group when none is selected
-    if (!effectiveGroupId) {
-      const defaultGroup = groups.find(g => g.name === '默认组');
+
+    // Resolve and create the target group from the ref-backed snapshot. This
+    // keeps the first group and its first segment in one state transition;
+    // separate async setGroups calls can otherwise race with history/autosave.
+    let nextGroups = groupsRef.current;
+    if (!effectiveGroupId || !nextGroups.some(group => group.id === effectiveGroupId)) {
+      const defaultGroup = nextGroups.find(group => group.name === '默认组');
       if (defaultGroup) {
         effectiveGroupId = defaultGroup.id;
       } else {
@@ -496,7 +499,7 @@ export function useWaveform() {
           segments: [],
         };
         effectiveGroupId = newGroup.id;
-        setGroups(prev => [...prev, newGroup]);
+        nextGroups = [...nextGroups, newGroup];
         setSelectedGroup(newGroup.id);
       }
     }
@@ -509,17 +512,19 @@ export function useWaveform() {
       groupId: effectiveGroupId,
     };
     
-    setSegments(prev => [...prev, newSegment]);
-    
-    // Update the group's segment list
-    setGroups(prev => prev.map(g => 
-      g.id === effectiveGroupId 
-        ? { ...g, segments: [...g.segments, newSegment.id] }
-        : g
-    ));
+    nextGroups = nextGroups.map(group =>
+      group.id === effectiveGroupId
+        ? { ...group, segments: [...group.segments, newSegment.id] }
+        : group
+    );
+    const nextSegments = [...segmentsRef.current, newSegment];
+    groupsRef.current = nextGroups;
+    segmentsRef.current = nextSegments;
+    setGroups(nextGroups);
+    setSegments(nextSegments);
     
     return newSegment.id;
-  }, [selectedGroup, groups]);
+  }, [selectedGroup]);
 
   // Add a segment (public, saves history)
   const addSegment = useCallback((start: Point, end: Point, type: 'line' | 'curve' = 'line', targetGroupId?: string) => {
