@@ -30,6 +30,20 @@ const DEFAULT_AXIS_CONFIG: AxisConfig = {
   yMajorGridSize: 2,
 };
 
+export const MIN_GRID_SIZE = 0.001;
+
+const normalizeGridSize = (value: number | undefined, fallback: number) =>
+  Number.isFinite(value) ? Math.max(MIN_GRID_SIZE, value as number) : fallback;
+
+const normalizeAxisConfig = (config?: Partial<AxisConfig>): AxisConfig => ({
+  xUnit: config?.xUnit ?? DEFAULT_AXIS_CONFIG.xUnit,
+  yUnit: config?.yUnit ?? DEFAULT_AXIS_CONFIG.yUnit,
+  xGridSize: normalizeGridSize(config?.xGridSize, DEFAULT_AXIS_CONFIG.xGridSize),
+  yGridSize: normalizeGridSize(config?.yGridSize, DEFAULT_AXIS_CONFIG.yGridSize),
+  xMajorGridSize: normalizeGridSize(config?.xMajorGridSize, DEFAULT_AXIS_CONFIG.xMajorGridSize),
+  yMajorGridSize: normalizeGridSize(config?.yMajorGridSize, DEFAULT_AXIS_CONFIG.yMajorGridSize),
+});
+
 // Escape XML text (group names / unit labels may contain special chars)
 const escapeXml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -304,9 +318,7 @@ export function useWaveform() {
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
   }, []);
   
-  const [axisConfig, setAxisConfig] = useState<AxisConfig>(() =>
-    draft?.axisConfig ? { ...DEFAULT_AXIS_CONFIG, ...draft.axisConfig } : DEFAULT_AXIS_CONFIG
-  );
+  const [axisConfig, setAxisConfig] = useState<AxisConfig>(() => normalizeAxisConfig(draft?.axisConfig));
   // Infinite-canvas viewport (pan center + per-axis scale)
   const [viewport, setViewport] = useState<Viewport>(() => normalizeViewport(draft?.viewport));
 
@@ -1409,14 +1421,7 @@ export function useWaveform() {
     // Import the axis config if present, keeping only known fields
     if (data.axisConfig) {
       const a = data.axisConfig;
-      setAxisConfig({
-        xUnit: a.xUnit ?? 'us',
-        yUnit: a.yUnit ?? 'A',
-        xGridSize: a.xGridSize || 0.5,
-        yGridSize: a.yGridSize || 0.5,
-        xMajorGridSize: a.xMajorGridSize || 2,
-        yMajorGridSize: a.yMajorGridSize || 2,
-      });
+      setAxisConfig(normalizeAxisConfig(a));
     }
 
     // Restore the viewport (2.0+ only; older files keep the current one).
