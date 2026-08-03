@@ -425,7 +425,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <div className="ws-surface ws-inspector-scroll h-full w-full overflow-y-auto rounded-xl p-3 sm:p-4">
+    <div className="ws-surface ws-inspector-scroll min-h-0 h-full w-full touch-pan-y overscroll-contain overflow-y-auto rounded-xl p-3 sm:p-4">
       {/* Title */}
       <h2 className="ws-display mb-4 pr-8 text-lg font-bold text-[var(--ws-ink)]">{t('groupPanelTitle')}</h2>
 
@@ -547,7 +547,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     align="start"
                     sideOffset={8}
                     collisionPadding={8}
-                    className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[var(--radix-popover-content-available-height)] overflow-x-hidden overflow-y-auto p-3"
+                    data-vaul-no-drag
+                    className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[min(70dvh,var(--radix-popover-content-available-height))] touch-pan-y overscroll-contain overflow-x-hidden overflow-y-auto p-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ColorPicker
