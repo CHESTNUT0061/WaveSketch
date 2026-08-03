@@ -72,14 +72,14 @@ export function AppStatusBar() {
   }, []);
 
   return (
-    <footer className="grid min-h-10 shrink-0 grid-cols-[1fr_auto] items-center gap-x-3 gap-y-0.5 border-t border-[var(--ws-border)] bg-white/40 px-3 py-1 text-xs sm:grid-cols-[1fr_auto_1fr] sm:px-5">
-      <div className="ws-display whitespace-nowrap text-[13px] font-semibold text-[var(--ws-ink)]">
+    <footer className="grid min-h-10 shrink-0 grid-cols-1 items-center gap-x-3 gap-y-1 border-t border-[var(--ws-border)] bg-white/40 px-3 pb-[calc(0.25rem+env(safe-area-inset-bottom))] pt-1 text-xs sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-y-0 sm:px-5 sm:py-1">
+      <div className="ws-display min-w-0 max-w-full truncate text-[13px] font-semibold text-[var(--ws-ink)]">
         WaveSketch <span className="font-normal text-[var(--ws-light)]">· MIT · v{__APP_VERSION__}</span>
       </div>
 
-      <div className="col-span-2 row-start-2 flex min-w-0 items-center justify-center gap-2 sm:col-span-1 sm:col-start-2 sm:row-start-1">
+      <div className="col-start-1 row-start-3 flex min-w-0 max-w-full flex-wrap items-center justify-center gap-2 sm:col-start-2 sm:row-start-1">
         <span className="hidden w-14 border-t border-dashed border-[#713b20]/60 md:block" aria-hidden="true" />
-        <span className="whitespace-nowrap text-[11px] font-medium text-[var(--ws-muted)] sm:text-xs">
+        <span className="text-center text-[11px] font-medium text-[var(--ws-muted)] sm:text-xs">
           Copyright © 2026 CHESTNUT0061
         </span>
 
@@ -140,14 +140,18 @@ export function AppStatusBar() {
         <span className="hidden w-14 border-t border-dashed border-[#713b20]/60 md:block" aria-hidden="true" />
       </div>
 
-      <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end sm:col-start-3">
+      <div className="col-start-1 row-start-2 flex min-w-0 max-w-full items-center justify-center sm:col-start-3 sm:row-start-1 sm:justify-end">
         {visitCounts && (
-          <span className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--ws-border)] bg-[var(--ws-card)] px-2.5 py-1 text-[11px] tabular-nums text-[var(--ws-muted)] shadow-sm sm:text-xs" role="status">
-            <MousePointerClick className="size-3 shrink-0 text-primary" />
-            <span>{t('visitCountShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.pageViews.toLocaleString()}</strong></span>
+          <span className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border border-[var(--ws-border)] bg-[var(--ws-card)] px-2.5 py-1 text-[11px] tabular-nums text-[var(--ws-muted)] shadow-sm sm:text-xs" role="status">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MousePointerClick className="size-3 shrink-0 text-primary" />
+              <span>{t('visitCountShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.pageViews.toLocaleString()}</strong></span>
+            </span>
             <span className="text-[var(--ws-light)]" aria-hidden="true">·</span>
-            <Users className="size-3 shrink-0 text-primary" />
-            <span>{t('visitorShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.visitors.toLocaleString()}</strong></span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <Users className="size-3 shrink-0 text-primary" />
+              <span>{t('visitorShort')} <strong className="ws-display text-[var(--ws-ink)]">{visitCounts.visitors.toLocaleString()}</strong></span>
+            </span>
           </span>
         )}
         <div className="hidden" aria-hidden="true">

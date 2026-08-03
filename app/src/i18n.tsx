@@ -64,8 +64,12 @@ const S = {
   reset: { zh: '复位', en: 'Reset' },
   fitContent: { zh: '适应内容', en: 'Fit' },
   pan: { zh: '平移', en: 'Pan' },
+  zoomXOut: { zh: '横轴缩小', en: 'Zoom X out' },
+  zoomXIn: { zh: '横轴放大', en: 'Zoom X in' },
+  zoomYOut: { zh: '纵轴缩小', en: 'Zoom Y out' },
+  zoomYIn: { zh: '纵轴放大', en: 'Zoom Y in' },
   tipPan: { zh: '拖动平移画布（触屏单指拖动，双指捏合缩放）', en: 'Drag to pan the canvas (one-finger drag on touch, two-finger pinch to zoom)' },
-  panHint: { zh: '中键/空格拖拽平移 · Shift+滚轮缩放横轴', en: 'Middle/Space+drag to pan · Shift+wheel zooms the X axis' },
+  panHint: { zh: '中键/空格拖拽 · Shift+滚轮：横轴缩放', en: 'Middle/Space drag · Shift+wheel: X-axis zoom' },
 
   // Offset readouts
   cells: { zh: '格', en: 'cells' },
@@ -80,6 +84,8 @@ const S = {
   xUnit: { zh: 'X单位', en: 'X unit' },
   minorGrid: { zh: '次格点', en: 'Minor' },
   majorGrid: { zh: '主格点', en: 'Major' },
+  decreaseValue: { zh: '减小数值', en: 'Decrease value' },
+  increaseValue: { zh: '增大数值', en: 'Increase value' },
 
   // Footer
   visitCountPrefix: { zh: '本工具已被使用', en: 'Used' },

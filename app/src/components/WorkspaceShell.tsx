@@ -138,7 +138,9 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
           open={mobileOpen}
           onOpenChange={setMobileOpen}
           direction="bottom"
-          disablePreventScroll={false}
+          disablePreventScroll
+          fixed
+          repositionInputs
         >
           <DrawerContent className="min-h-0 h-[min(85dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]">
             <DrawerHeader className="sr-only">
