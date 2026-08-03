@@ -551,10 +551,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     sideOffset={8}
                     collisionPadding={8}
                     data-vaul-no-drag
-                    className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[min(70dvh,var(--radix-popover-content-available-height))] touch-pan-y overscroll-contain overflow-x-hidden overflow-y-auto p-3"
+                    className="z-[100] w-56 max-w-[calc(100vw-1rem)] max-h-[min(70dvh,var(--radix-popover-content-available-height))] touch-pan-y overscroll-contain overflow-x-hidden overflow-y-auto p-3 [-webkit-overflow-scrolling:touch]"
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                     onPointerMove={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
                   >
                     <ColorPicker
                       group={group}
