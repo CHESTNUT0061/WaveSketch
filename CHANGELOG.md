@@ -2,6 +2,13 @@
 
 All notable changes to WaveSketch are documented in this file.
 
+## [1.0.5] - 2026-08-04
+
+### Fixed
+
+- Improved contrast for the canvas coordinate-difference readout.
+- Mobile waveform drawers now resize to the visible viewport when the keyboard opens instead of being repositioned upward.
+
 ## [1.0.2] - 2026-08-02
 
 ### Fixed
