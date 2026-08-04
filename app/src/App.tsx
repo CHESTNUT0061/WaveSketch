@@ -122,6 +122,11 @@ const ToolButton: React.FC<ToolButtonProps> = ({ toolMode, label, icon: Icon, to
 
 function App() {
   const { t } = useI18n();
+  const [isTouchDevice, setIsTouchDevice] = useState(() => (
+    typeof window !== 'undefined' && (
+      navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640
+    )
+  ));
   const {
     segments,
     groups,
@@ -213,6 +218,15 @@ function App() {
     extendGroupMultiPhase,
     worldToScreen,
   } = useWaveform();
+
+  React.useEffect(() => {
+    const updateTouchDevice = () => setIsTouchDevice(
+      navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640,
+    );
+    updateTouchDevice();
+    window.addEventListener('resize', updateTouchDevice);
+    return () => window.removeEventListener('resize', updateTouchDevice);
+  }, []);
 
   // Drag state for edit mode
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ segmentId: string; point: 'start' | 'end' } | null>(null);
@@ -1022,7 +1036,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-[var(--ws-cream)] text-[var(--ws-ink)]">
+    <div className="ws-app-shell flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-[var(--ws-cream)] text-[var(--ws-ink)]">
       <AppHeader />
 
       <div className="ws-surface mx-2 mb-2 flex shrink-0 flex-col gap-1 rounded-xl p-1.5 lg:mx-4 lg:flex-row lg:items-center lg:gap-2">
@@ -1132,7 +1146,7 @@ function App() {
                   </Button>
                 </div>
                 </div>
-                <div className="max-w-full text-center text-sm leading-tight text-[var(--ws-muted)]">{t('panHint')}</div>
+                {!isTouchDevice && <div className="max-w-full text-center text-sm leading-tight text-[var(--ws-muted)]">{t('panHint')}</div>}
               </div>
 
               {/* Offset readout (while moving a group or previewing a paste) */}
