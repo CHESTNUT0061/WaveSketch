@@ -96,7 +96,7 @@ export function AppStatusBar() {
                   src={closedMascotSrc}
                   alt=""
                   draggable={false}
-                  className={`ws-mascot-image absolute left-1/2 top-1/2 w-[33px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
+                  className={`ws-mascot-image ws-mascot-closed absolute left-1/2 top-1/2 w-[33px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
                     menuOpen ? '-rotate-6 scale-75 opacity-0' : 'rotate-0 scale-100 opacity-100'
                   }`}
                 />
@@ -104,7 +104,7 @@ export function AppStatusBar() {
                   src={openMascotSrc}
                   alt=""
                   draggable={false}
-                  className={`ws-mascot-image absolute left-1/2 top-1/2 w-[50px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
+                  className={`ws-mascot-image ws-mascot-open absolute left-1/2 top-1/2 w-[50px] max-w-none -translate-x-1/2 -translate-y-1/2 transition-[opacity,transform] duration-300 ease-out will-change-transform motion-reduce:transition-none ${
                     menuOpen ? 'rotate-0 scale-100 opacity-100' : 'rotate-6 scale-75 opacity-0'
                   }`}
                 />

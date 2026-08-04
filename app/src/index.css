@@ -34,7 +34,7 @@
     height: 1.25rem;
     gap: 0.25rem;
     padding-inline: 0.35rem;
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
   }
 
   .ws-app-shell header button svg,
@@ -46,14 +46,14 @@
   .ws-app-shell main .text-xs,
   .ws-app-shell main .text-sm,
   .ws-app-shell footer {
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
     line-height: 0.75rem;
   }
 
   .ws-app-shell main .ws-surface > button {
     height: 1.5rem;
     padding-inline: 0.4rem;
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
   }
 
   .ws-app-shell main .ws-surface > button svg {
@@ -63,7 +63,7 @@
 
   .ws-app-shell .ws-zoom-overlay .text-sm,
   .ws-app-shell .ws-axis-compact .text-sm {
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
     line-height: 0.75rem;
   }
 
@@ -94,11 +94,15 @@
 
   .ws-app-shell footer .text-\[11px\],
   .ws-app-shell footer .text-\[10px\] {
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
   }
 
-  .ws-app-shell .ws-mascot-image {
+  .ws-app-shell .ws-mascot-closed {
     width: 1.5rem;
+  }
+
+  .ws-app-shell .ws-mascot-open {
+    width: 2.25rem;
   }
 
   [data-slot="dialog-content"] {

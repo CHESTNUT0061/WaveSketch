@@ -1040,7 +1040,7 @@ function App() {
       <AppHeader />
 
       <div className="ws-surface mx-2 mb-2 flex shrink-0 flex-col gap-1 rounded-xl p-1.5 lg:mx-4 lg:flex-row lg:items-center lg:gap-2">
-          <div className="ws-command-row ws-scroll-fade min-w-0 w-full" aria-label={t('drawingTools')}>
+          <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:w-auto lg:flex-1" aria-label={t('drawingTools')}>
             <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} tooltip={TOOLTIPS.select} active={mode === 'select'} onSelect={setMode} />
             <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} tooltip={TOOLTIPS.draw} active={mode === 'draw'} onSelect={setMode} />
             <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} tooltip={TOOLTIPS.edit} active={mode === 'edit'} onSelect={setMode} />
@@ -1072,7 +1072,7 @@ function App() {
 
           <div className="mx-1 hidden h-6 w-px shrink-0 bg-[var(--ws-border)] lg:block" />
 
-          <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:ml-auto" aria-label={t('dataAndHistoryTools')}>
+          <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:ml-auto lg:w-auto lg:shrink-0" aria-label={t('dataAndHistoryTools')}>
             <TooltipButton tooltip={TOOLTIPS.svg}>
               <Button variant="outline" size="sm" onClick={() => downloadSVG()} className="flex items-center gap-1">
                 <Image className="w-4 h-4" />SVG
