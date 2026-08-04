@@ -15,7 +15,7 @@ const S = {
   aboutFeatureDraw: { zh: '绘制与编辑', en: 'Draw and edit' },
   aboutFeatureCompute: { zh: '生成与计算', en: 'Generate and calculate' },
   aboutFeatureExport: { zh: 'SVG / PNG 导出', en: 'SVG / PNG export' },
-  inspectorButton: { zh: '波形面板', en: 'Waveform panel' },
+  inspectorButton: { zh: '波形', en: 'Waveform' },
   openInspector: { zh: '打开波形面板', en: 'Open waveform panel' },
   closeInspector: { zh: '收起波形面板', en: 'Collapse waveform panel' },
   inspectorDescription: { zh: '管理波形组、生成波形并进行计算', en: 'Manage waveform groups, generate waveforms, and calculate results' },
