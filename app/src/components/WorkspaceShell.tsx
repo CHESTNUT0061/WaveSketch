@@ -55,11 +55,27 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
     if (!viewport) return;
 
     const updateVisualViewportHeight = () => {
-      setVisualViewportHeight(viewport.height);
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement instanceof HTMLInputElement
+        || activeElement instanceof HTMLTextAreaElement
+        || activeElement instanceof HTMLSelectElement
+        || activeElement?.getAttribute('contenteditable') === 'true';
+      const keyboardVisible = isInputFocused && viewport.height < window.innerHeight - 120;
+      setVisualViewportHeight(keyboardVisible ? viewport.height : window.innerHeight);
     };
     updateVisualViewportHeight();
     viewport.addEventListener('resize', updateVisualViewportHeight);
-    return () => viewport.removeEventListener('resize', updateVisualViewportHeight);
+    viewport.addEventListener('scroll', updateVisualViewportHeight);
+    window.addEventListener('resize', updateVisualViewportHeight);
+    window.addEventListener('focusin', updateVisualViewportHeight);
+    window.addEventListener('focusout', updateVisualViewportHeight);
+    return () => {
+      viewport.removeEventListener('resize', updateVisualViewportHeight);
+      viewport.removeEventListener('scroll', updateVisualViewportHeight);
+      window.removeEventListener('resize', updateVisualViewportHeight);
+      window.removeEventListener('focusin', updateVisualViewportHeight);
+      window.removeEventListener('focusout', updateVisualViewportHeight);
+    };
   }, []);
 
   const toggleInspector = () => {
