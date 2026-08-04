@@ -38,35 +38,35 @@ export function AppHeader() {
               <span className="hidden sm:inline">{t('aboutButton')}</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)] p-0 sm:max-w-xl">
+          <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto border-[var(--ws-border)] bg-[var(--ws-cream)] p-0 sm:max-h-none sm:max-w-xl sm:overflow-hidden">
             <div className="h-1 bg-primary" />
-            <div className="p-6 sm:p-7">
+            <div className="ws-about-body p-3 sm:p-7">
               <DialogHeader>
-                <div className="mb-4 flex min-w-0 items-center gap-3 pr-8">
+                <div className="mb-2 flex min-w-0 items-center gap-2 pr-8 sm:mb-4 sm:gap-3">
                   <img
                     src={`${import.meta.env.BASE_URL}favicon-64.png`}
                     alt=""
                     draggable={false}
-                    className="ws-brand-image size-11 shrink-0 rounded-lg"
+                    className="ws-brand-image size-8 shrink-0 rounded-lg sm:size-11"
                   />
                   <div className="min-w-0">
                     <div className="ws-display truncate text-xl font-bold tracking-[0.04em] text-[var(--ws-ink)]">WaveSketch</div>
                     <div className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Open waveform workspace</div>
                   </div>
                 </div>
-                <DialogTitle className="ws-display text-3xl font-semibold text-[var(--ws-ink)]">
+                <DialogTitle className="ws-display text-2xl font-semibold text-[var(--ws-ink)] sm:text-3xl">
                   {t('aboutTitle')}
                 </DialogTitle>
-                <DialogDescription className="max-w-lg pt-1 leading-6 text-[var(--ws-muted)]">
+                <DialogDescription className="max-w-lg pt-1 text-sm leading-5 text-[var(--ws-muted)] sm:leading-6">
                   {t('aboutDescription')}
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="my-6 grid gap-3 sm:grid-cols-3">
+              <div className="my-3 grid gap-2 sm:my-6 sm:gap-3 sm:grid-cols-3">
                 {[t('aboutFeatureDraw'), t('aboutFeatureCompute'), t('aboutFeatureExport')].map((item, index) => (
-                  <div key={item} className="rounded-xl border border-[var(--ws-border)] bg-[var(--ws-card)] p-3">
-                    <div className="ws-display mb-2 text-lg font-bold text-primary">0{index + 1}</div>
-                    <div className="text-sm font-medium text-[var(--ws-ink)]">{item}</div>
+                  <div key={item} className="rounded-xl border border-[var(--ws-border)] bg-[var(--ws-card)] p-2 sm:p-3">
+                    <div className="ws-display mb-1 text-base font-bold text-primary sm:mb-2 sm:text-lg">0{index + 1}</div>
+                    <div className="text-xs font-medium text-[var(--ws-ink)] sm:text-sm">{item}</div>
                   </div>
                 ))}
               </div>
