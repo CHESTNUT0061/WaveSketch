@@ -16,6 +16,8 @@ import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
 
 type SineHandle = 'move' | 'amplitude' | 'period';
 
+const ZOOM_OVERLAY_COLLAPSED_KEY = 'wavesketch.ui.zoomOverlayCollapsed';
+
 interface HoverInfo {
   x: number;
   y: number;
@@ -127,6 +129,16 @@ function App() {
       navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640
     )
   ));
+  const [isCompactViewport, setIsCompactViewport] = useState(() => (
+    typeof window !== 'undefined' && window.innerWidth < 1024
+  ));
+  const [zoomOverlayCollapsed, setZoomOverlayCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(ZOOM_OVERLAY_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const {
     segments,
     groups,
@@ -220,12 +232,27 @@ function App() {
   } = useWaveform();
 
   React.useEffect(() => {
-    const updateTouchDevice = () => setIsTouchDevice(
-      navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640,
-    );
+    const updateTouchDevice = () => {
+      setIsTouchDevice(
+        navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640,
+      );
+      setIsCompactViewport(window.innerWidth < 1024);
+    };
     updateTouchDevice();
     window.addEventListener('resize', updateTouchDevice);
     return () => window.removeEventListener('resize', updateTouchDevice);
+  }, []);
+
+  const toggleZoomOverlay = useCallback(() => {
+    setZoomOverlayCollapsed((collapsed) => {
+      const next = !collapsed;
+      try {
+        localStorage.setItem(ZOOM_OVERLAY_COLLAPSED_KEY, String(next));
+      } catch {
+        // Ignore unavailable storage (for example private or restricted contexts).
+      }
+      return next;
+    });
   }, []);
 
   // Drag state for edit mode
@@ -1115,39 +1142,66 @@ function App() {
           main={(
           <div className="flex h-full min-h-0 w-full flex-col gap-2">
             <div className="ws-surface relative min-h-0 flex-1 overflow-hidden rounded-xl bg-white" style={{ touchAction: 'none' }}>
-              {/* Independent X/Y zoom controls with the viewport actions centered vertically beside them. */}
-              <div className="ws-control-overlay ws-zoom-overlay absolute bottom-3 left-0 z-10 flex w-max max-w-[calc(100%-0.5rem)] origin-bottom-left scale-[0.94] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5">
-                <div className="flex items-center justify-center gap-1">
-                  <div className="flex shrink-0 flex-col gap-0.5">
+              {/* Independent X/Y zoom controls, anchored away from the coordinate origin. */}
+              {isCompactViewport && zoomOverlayCollapsed ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ws-control-overlay absolute bottom-3 right-3 z-10 h-9 min-w-12 rounded-xl px-3 font-mono text-sm shadow-sm"
+                  onClick={toggleZoomOverlay}
+                  aria-label={t('zoomControls')}
+                  aria-expanded="false"
+                  title={t('zoomControls')}
+                >
+                  %
+                </Button>
+              ) : (
+                <div className="ws-control-overlay ws-zoom-overlay absolute bottom-3 right-3 z-10 flex w-max max-w-[calc(100%-0.5rem)] origin-bottom-right scale-[0.94] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5">
                   <div className="flex items-center justify-center gap-1">
-                    <span className="w-4 text-center text-sm font-semibold text-[var(--ws-muted)]">X</span>
-                    <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(0.8, undefined, 'x')} aria-label={t('zoomXOut')} title={t('zoomXOut')}>−</Button>
-                    <span className="min-w-10 text-center font-mono text-sm whitespace-nowrap">{Math.round((viewport.scaleX / BASE_SCALE) * 100)}%</span>
-                    <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(1.25, undefined, 'x')} aria-label={t('zoomXIn')} title={t('zoomXIn')}>+</Button>
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="w-4 text-center text-sm font-semibold text-[var(--ws-muted)]">X</span>
+                        <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(0.8, undefined, 'x')} aria-label={t('zoomXOut')} title={t('zoomXOut')}>−</Button>
+                        <span className="min-w-10 text-center font-mono text-sm whitespace-nowrap">{Math.round((viewport.scaleX / BASE_SCALE) * 100)}%</span>
+                        <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(1.25, undefined, 'x')} aria-label={t('zoomXIn')} title={t('zoomXIn')}>+</Button>
+                      </div>
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="w-4 text-center text-sm font-semibold text-[var(--ws-muted)]">Y</span>
+                        <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(0.8, undefined, 'y')} aria-label={t('zoomYOut')} title={t('zoomYOut')}>−</Button>
+                        <span className="min-w-10 text-center font-mono text-sm whitespace-nowrap">{Math.round((viewport.scaleY / BASE_SCALE) * 100)}%</span>
+                        <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(1.25, undefined, 'y')} aria-label={t('zoomYIn')} title={t('zoomYIn')}>+</Button>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1 border-l border-[var(--ws-border)] pl-2">
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={resetViewport}>{t('reset')}</Button>
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={fitToContent} disabled={segments.length === 0 && !groups.some(group => group.visible && group.parametric?.kind === 'sine')}>{t('fitContent')}</Button>
+                      <Button
+                        variant={mode === 'pan' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="flex h-8 items-center gap-1 px-2 text-sm whitespace-nowrap"
+                        onClick={togglePanMode}
+                        title={t('tipPan')}
+                      >
+                        <Hand className="h-3.5 w-3.5" />{t('pan')}
+                      </Button>
+                      {isCompactViewport && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 min-w-8 px-1 text-sm"
+                          onClick={toggleZoomOverlay}
+                          aria-label={t('zoomControls')}
+                          aria-expanded="true"
+                          title={t('zoomControls')}
+                        >
+                          ×
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="w-4 text-center text-sm font-semibold text-[var(--ws-muted)]">Y</span>
-                    <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(0.8, undefined, 'y')} aria-label={t('zoomYOut')} title={t('zoomYOut')}>−</Button>
-                    <span className="min-w-10 text-center font-mono text-sm whitespace-nowrap">{Math.round((viewport.scaleY / BASE_SCALE) * 100)}%</span>
-                    <Button variant="ghost" size="sm" className="h-7 min-w-7 px-1 text-sm" onClick={() => handleZoom(1.25, undefined, 'y')} aria-label={t('zoomYIn')} title={t('zoomYIn')}>+</Button>
-                  </div>
+                  {!isTouchDevice && <div className="max-w-full text-center text-sm leading-tight text-[var(--ws-muted)]">{t('panHint')}</div>}
                 </div>
-                  <div className="flex shrink-0 items-center gap-1 border-l border-[var(--ws-border)] pl-2">
-                  <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={resetViewport}>{t('reset')}</Button>
-                  <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={fitToContent} disabled={segments.length === 0 && !groups.some(group => group.visible && group.parametric?.kind === 'sine')}>{t('fitContent')}</Button>
-                  <Button
-                    variant={mode === 'pan' ? 'default' : 'ghost'}
-                    size="sm"
-                    className="flex h-8 items-center gap-1 px-2 text-sm whitespace-nowrap"
-                    onClick={togglePanMode}
-                    title={t('tipPan')}
-                  >
-                    <Hand className="h-3.5 w-3.5" />{t('pan')}
-                  </Button>
-                </div>
-                </div>
-                {!isTouchDevice && <div className="max-w-full text-center text-sm leading-tight text-[var(--ws-muted)]">{t('panHint')}</div>}
-              </div>
+              )}
 
               {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (

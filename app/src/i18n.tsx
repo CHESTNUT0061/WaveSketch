@@ -68,6 +68,7 @@ const S = {
   zoomXIn: { zh: '横轴放大', en: 'Zoom X in' },
   zoomYOut: { zh: '纵轴缩小', en: 'Zoom Y out' },
   zoomYIn: { zh: '纵轴放大', en: 'Zoom Y in' },
+  zoomControls: { zh: '缩放控件', en: 'Zoom controls' },
   tipPan: { zh: '拖动平移画布（触屏单指拖动，双指捏合缩放）', en: 'Drag to pan the canvas (one-finger drag on touch, two-finger pinch to zoom)' },
   panHint: { zh: '中键/空格拖拽 · Shift+滚轮：横轴缩放', en: 'Middle/Space drag · Shift+wheel: X-axis zoom' },
 

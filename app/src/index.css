@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+.ws-canvas-interaction,
+.ws-canvas-interaction canvas {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
 @media (max-width: 359px) {
   .ws-zoom-overlay {
     width: calc(100% + 1.7rem);
