@@ -605,6 +605,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
+  const handleTouchCancel = (e: React.TouchEvent) => {
+    pinchRef.current = null;
+    ignoreSingleTouchRef.current = false;
+    e.target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  };
+
   // Per-mode cursors. Icon cursors are drawn twice (thick black stroke under a thin
   // white stroke) so they stay visible on any background.
   const outlinedCursor = (paths: string, hotX: number, hotY: number, fallback: string) =>
@@ -647,16 +653,26 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full touch-none overflow-hidden">
+    <div
+      ref={containerRef}
+      className="ws-canvas-interaction h-full w-full touch-none select-none overflow-hidden"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
       <canvas
         ref={canvasRef}
         width={Math.round(canvasSize.width * (window.devicePixelRatio || 1))}
         height={Math.round(canvasSize.height * (window.devicePixelRatio || 1))}
-        className="bg-white"
+        className="bg-white select-none"
         style={{
           width: canvasSize.width,
           height: canvasSize.height,
-          cursor: cursorOverride ?? (panning ? GRAB_CURSOR : MODE_CURSORS[mode])
+          cursor: cursorOverride ?? (panning ? GRAB_CURSOR : MODE_CURSORS[mode]),
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -666,6 +682,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDragStart={(e) => e.preventDefault()}
         onWheel={handleWheel}
         onScroll={(e) => { e.preventDefault(); e.stopPropagation(); }}
       />
