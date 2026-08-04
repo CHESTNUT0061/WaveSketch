@@ -40,9 +40,7 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   const [inspectorSize, setInspectorSize] = React.useState(readInspectorSize);
   const [inspectorCollapsed, setInspectorCollapsed] = React.useState(readInspectorCollapsed);
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const [visualViewportHeight, setVisualViewportHeight] = React.useState(() => (
-    typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 0
-  ));
+  const [keyboardViewportHeight, setKeyboardViewportHeight] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     const handleResize = () => setViewportMode(getViewportMode());
@@ -53,6 +51,7 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   React.useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    const fullViewportHeight = { current: Math.max(viewport.height, window.innerHeight) };
 
     const updateVisualViewportHeight = () => {
       const activeElement = document.activeElement;
@@ -60,8 +59,13 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
         || activeElement instanceof HTMLTextAreaElement
         || activeElement instanceof HTMLSelectElement
         || activeElement?.getAttribute('contenteditable') === 'true';
-      const keyboardVisible = isInputFocused && viewport.height < window.innerHeight - 120;
-      setVisualViewportHeight(keyboardVisible ? viewport.height : window.innerHeight);
+      const keyboardVisible = isInputFocused && viewport.height < fullViewportHeight.current - 120;
+      if (keyboardVisible) {
+        setKeyboardViewportHeight(viewport.height);
+      } else {
+        fullViewportHeight.current = Math.max(fullViewportHeight.current, viewport.height, window.innerHeight);
+        setKeyboardViewportHeight(null);
+      }
     };
     updateVisualViewportHeight();
     viewport.addEventListener('resize', updateVisualViewportHeight);
@@ -173,8 +177,10 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
           fixed
         >
           <DrawerContent
-            className="min-h-0 h-[min(85dvh,var(--ws-visual-viewport-height),calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-h-[min(var(--ws-visual-viewport-height),calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]"
-            style={{ '--ws-visual-viewport-height': `${visualViewportHeight}px` } as React.CSSProperties}
+            className="min-h-0 h-[85dvh] max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]"
+            style={keyboardViewportHeight === null
+              ? undefined
+              : { height: `min(85dvh, ${keyboardViewportHeight}px)`, maxHeight: `${keyboardViewportHeight}px` }}
           >
             <DrawerHeader className="sr-only">
               <DrawerTitle>{t('groupPanelTitle')}</DrawerTitle>
