@@ -1205,7 +1205,11 @@ function App() {
 
               {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (
-                <div className="absolute right-3 top-3 z-10 rounded-lg bg-[var(--ws-ink)]/80 px-3 py-2 font-mono text-sm text-white shadow-lg backdrop-blur-sm">
+                <div
+                  className="absolute right-3 top-3 z-10 rounded-lg border border-black/20 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
+                  style={{ backgroundColor: 'rgba(17, 17, 17, 0.92)', color: '#ffffff' }}
+                  aria-live="polite"
+                >
                   <div>ΔX: {moveOffset.x >= 0 ? '+' : ''}{(moveOffset.x / axisConfig.xGridSize).toFixed(1)} {t('cells')}</div>
                   <div>ΔY: {moveOffset.y >= 0 ? '+' : ''}{(moveOffset.y / axisConfig.yGridSize).toFixed(1)} {t('cells')}</div>
                 </div>
@@ -1213,7 +1217,11 @@ function App() {
 
               {/* Paste-preview offset readout (top-right of canvas) */}
               {isCopyPreview && selectCopyOffset && (
-                <div className="absolute right-3 top-3 z-10 rounded-lg bg-primary/90 px-3 py-2 font-mono text-sm text-primary-foreground shadow-lg backdrop-blur-sm">
+                <div
+                  className="absolute right-3 top-3 z-10 rounded-lg border border-white/25 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
+                  style={{ backgroundColor: 'rgba(30, 43, 250, 0.94)', color: '#ffffff' }}
+                  aria-live="polite"
+                >
                   <div className="mb-1 text-xs text-primary-foreground/70">{t('copyPreviewHint')}</div>
                   <div>ΔX: {(selectCopyOffset.x / axisConfig.xGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.x >= 0 ? '+' : ''}{selectCopyOffset.x.toFixed(2)})</div>
                   <div>ΔY: {(selectCopyOffset.y / axisConfig.yGridSize).toFixed(0)} {t('cells')} ({selectCopyOffset.y >= 0 ? '+' : ''}{selectCopyOffset.y.toFixed(2)})</div>

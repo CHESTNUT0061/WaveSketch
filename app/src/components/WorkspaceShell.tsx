@@ -40,11 +40,26 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   const [inspectorSize, setInspectorSize] = React.useState(readInspectorSize);
   const [inspectorCollapsed, setInspectorCollapsed] = React.useState(readInspectorCollapsed);
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [visualViewportHeight, setVisualViewportHeight] = React.useState(() => (
+    typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 0
+  ));
 
   React.useEffect(() => {
     const handleResize = () => setViewportMode(getViewportMode());
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  React.useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const updateVisualViewportHeight = () => {
+      setVisualViewportHeight(viewport.height);
+    };
+    updateVisualViewportHeight();
+    viewport.addEventListener('resize', updateVisualViewportHeight);
+    return () => viewport.removeEventListener('resize', updateVisualViewportHeight);
   }, []);
 
   const toggleInspector = () => {
@@ -140,9 +155,11 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
           direction="bottom"
           disablePreventScroll
           fixed
-          repositionInputs
         >
-          <DrawerContent className="min-h-0 h-[min(85dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]">
+          <DrawerContent
+            className="min-h-0 h-[min(85dvh,var(--ws-visual-viewport-height),calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-h-[min(var(--ws-visual-viewport-height),calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]"
+            style={{ '--ws-visual-viewport-height': `${visualViewportHeight}px` } as React.CSSProperties}
+          >
             <DrawerHeader className="sr-only">
               <DrawerTitle>{t('groupPanelTitle')}</DrawerTitle>
               <DrawerDescription>{t('inspectorDescription')}</DrawerDescription>
