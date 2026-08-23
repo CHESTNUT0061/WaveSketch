@@ -225,6 +225,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
     ctx.globalAlpha = opacity;
     ctx.setLineDash(dash);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     if (segment.type === 'curve' && segment.control) {
       // Quadratic Bezier drawn directly (clipped by the canvas bounds)
@@ -301,6 +303,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.lineWidth = group.lineWidth ?? DEFAULT_LINE_WIDTH;
     ctx.globalAlpha = group.opacity ?? 1;
     ctx.setLineDash(LINE_DASH[group.lineStyle ?? 'solid']);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     for (let i = 0; i <= samples; i++) {
       const elapsed = sine.period * sine.totalCycles * i / samples;

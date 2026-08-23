@@ -928,6 +928,22 @@ export function useWaveform() {
     applySegmentDeletion(selectedSegments);
   }, [selectedSegments, applySegmentDeletion]);
 
+  // Delete every fully-contained segment in a rubber-band rectangle.
+  const deleteSegmentsInRect = useCallback((corner1: Point, corner2: Point) => {
+    const xLo = Math.min(corner1.x, corner2.x);
+    const xHi = Math.max(corner1.x, corner2.x);
+    const yLo = Math.min(corner1.y, corner2.y);
+    const yHi = Math.max(corner1.y, corner2.y);
+    const inRect = (point: Point) => point.x >= xLo && point.x <= xHi && point.y >= yLo && point.y <= yHi;
+    const ids = new Set(segmentsRef.current
+      .filter(segment => {
+        const group = groupsRef.current.find(item => item.id === segment.groupId);
+        return (!group || group.visible) && inRect(segment.start) && inRect(segment.end);
+      })
+      .map(segment => segment.id));
+    applySegmentDeletion(ids);
+  }, [applySegmentDeletion]);
+
   // Move the selected segments by a delta (move, not copy)
   const moveSelectedSegments = useCallback((deltaX: number, deltaY: number) => {
     if (selectedSegments.size === 0) return;
@@ -1288,7 +1304,7 @@ export function useWaveform() {
     if (orphanSegments.length > 0) {
       svg += `    <g id="wave-group-ungrouped">\n`;
       orphanSegments.forEach(segment => {
-        svg += `      <path d="${generatePath(segment)}" stroke="#3b82f6" stroke-width="${DEFAULT_LINE_WIDTH}" fill="none"/>\n`;
+        svg += `      <path d="${generatePath(segment)}" stroke="#3b82f6" stroke-width="${DEFAULT_LINE_WIDTH}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>\n`;
       });
       svg += `    </g>\n`;
     }
@@ -1309,10 +1325,10 @@ export function useWaveform() {
       const groupNumber = groups.findIndex(item => item.id === group.id) + 1;
       svg += `    <g id="wave-group-${groupNumber}">\n      <title>${escapeXml(group.name)}</title>\n`;
       if (group.parametric?.kind === 'sine' && groupSegments.length === 0) {
-        svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+          svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${opacityAttr} fill="none"/>\n`;
       } else {
         groupSegments.forEach(segment => {
-          svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}"${dashAttr}${opacityAttr} fill="none"/>\n`;
+          svg += `      <path d="${generatePath(segment)}" stroke="${group.color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${opacityAttr} fill="none"/>\n`;
         });
       }
       svg += `    </g>\n`;
@@ -1659,6 +1675,7 @@ export function useWaveform() {
     clearSegmentSelection,
     selectSegmentsInRect,
     deleteSelectedSegments,
+    deleteSegmentsInRect,
     moveSelectedSegments,
     finishMoveSelectedSegments,
     copyToClipboard,

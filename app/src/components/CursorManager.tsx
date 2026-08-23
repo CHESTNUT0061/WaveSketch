@@ -19,6 +19,8 @@ interface CursorManagerProps {
   onFocus: (id: string) => void;
   onDelete: (id: string) => void;
   onIncludeInExportChange: (value: boolean) => void;
+  snapEnabled: boolean;
+  onSnapEnabledChange: (value: boolean) => void;
 }
 
 export const CursorManager: React.FC<CursorManagerProps> = ({
@@ -32,6 +34,8 @@ export const CursorManager: React.FC<CursorManagerProps> = ({
   onFocus,
   onDelete,
   onIncludeInExportChange,
+  snapEnabled,
+  onSnapEnabledChange,
 }) => {
   const { t } = useI18n();
 
@@ -99,6 +103,13 @@ export const CursorManager: React.FC<CursorManagerProps> = ({
             <div className="mt-0.5 text-[10px] text-gray-400">{t('cursorDragHint')}</div>
           </div>
           <Switch id="export-cursors" checked={includeCursorsInExport} onCheckedChange={onIncludeInExportChange} />
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
+          <div>
+            <Label htmlFor="snap-cursors" className="text-xs font-medium">{t('cursorSnap')}</Label>
+            <div className="mt-0.5 text-[10px] text-gray-400">{t('cursorDragHint')}</div>
+          </div>
+          <Switch id="snap-cursors" checked={snapEnabled} onCheckedChange={onSnapEnabledChange} />
         </div>
       </PopoverContent>
     </Popover>

@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/i18n';
-import { GITHUB_ISSUES_URL, GITHUB_REPO_URL, WPD_URL } from '@/lib/siteLinks';
+import { EE_TOOLBOX_URL, GITHUB_ISSUES_URL, GITHUB_REPO_URL, WPD_URL } from '@/lib/siteLinks';
 import { isProductionCounterHost, parseCounterText } from '@/lib/siteCounter';
 
 const BUSUANZI_SCRIPT_ID = 'wavesketch-busuanzi';
@@ -130,6 +130,11 @@ export function AppStatusBar() {
                 <DropdownMenuItem asChild>
                   <a href={WPD_URL} target="_blank" rel="noreferrer">
                     {t('linkWpdShort')}<ExternalLink className="ml-auto size-3" />
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href={EE_TOOLBOX_URL} target="_blank" rel="noreferrer">
+                    EE 工具箱<ExternalLink className="ml-auto size-3" />
                   </a>
                 </DropdownMenuItem>
               </DropdownMenuSubContent>

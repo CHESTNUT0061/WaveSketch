@@ -170,13 +170,19 @@
       <label>
         设备预设
         <select id="preset">
-          <option value="390x844">手机竖屏 · 390 × 844</option>
-          <option value="844x390">手机横屏 · 844 × 390</option>
-          <option value="430x932">大屏手机 · 430 × 932</option>
-          <option value="768x1024">平板竖屏 · 768 × 1024</option>
-          <option value="1024x768">平板横屏 · 1024 × 768</option>
-          <option value="1280x720">桌面 · 1280 × 720</option>
-          <option value="1440x900">桌面 · 1440 × 900</option>
+          <optgroup label="手机">
+            <option value="390x844">手机竖屏 · 390 × 844</option>
+            <option value="844x390">手机横屏 · 844 × 390</option>
+            <option value="430x932">大屏手机 · 430 × 932</option>
+          </optgroup>
+          <optgroup label="Pad">
+            <option value="768x1024">Pad 竖屏 · 768 × 1024</option>
+            <option value="1024x768">Pad 横屏 · 1024 × 768</option>
+          </optgroup>
+          <optgroup label="网页端">
+            <option value="1280x720">网页端 · 1280 × 720</option>
+            <option value="1440x900">网页端 · 1440 × 900</option>
+          </optgroup>
           <option value="custom">自定义</option>
         </select>
       </label>

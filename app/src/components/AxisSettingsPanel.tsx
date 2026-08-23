@@ -17,7 +17,7 @@ function loadMobileExpanded() {
 }
 
 function isCompactViewport() {
-  return window.innerWidth < 640 || window.innerHeight < 600;
+  return window.innerWidth <= 1024 || window.innerHeight < 600;
 }
 
 interface AxisSettingsPanelProps {

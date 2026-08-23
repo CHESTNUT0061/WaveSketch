@@ -3,7 +3,7 @@ import { useWaveform, BASE_SCALE, MIN_SCALE, MAX_SCALE } from '@/hooks/useWavefo
 import { WaveformCanvas } from '@/components/WaveformCanvas';
 import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Copy, ClipboardPaste } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Copy, ClipboardPaste, FolderOpen, Move, HelpCircle } from 'lucide-react';
 import type { ParametricSine, Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 import { CursorManager } from '@/components/CursorManager';
@@ -13,10 +13,15 @@ import { AxisSettingsPanel } from '@/components/AxisSettingsPanel';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
 import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
+import { constrainPanAxis, constrainPanDelta, selectPanAxis, type PanConstraint } from '@/lib/panConstraint';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 type SineHandle = 'move' | 'amplitude' | 'period';
 
 const ZOOM_OVERLAY_COLLAPSED_KEY = 'wavesketch.ui.zoomOverlayCollapsed';
+const ZOOM_OVERLAY_POSITION_KEY = 'wavesketch.ui.zoomOverlayPosition';
+const PAN_CONSTRAINT_KEY = 'wavesketch.ui.panConstraint';
 
 interface HoverInfo {
   x: number;
@@ -122,16 +127,22 @@ const ToolButton: React.FC<ToolButtonProps> = ({ toolMode, label, icon: Icon, to
   </TooltipButton>
 );
 
+const EightWayMoveIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <defs>
+      <marker id="wavesketch-eight-way-arrow" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+        <path d="M0.5 0.5L4.5 2.5L0.5 4.5" />
+      </marker>
+    </defs>
+    <path d="M2.5 12h19" markerStart="url(#wavesketch-eight-way-arrow)" markerEnd="url(#wavesketch-eight-way-arrow)" />
+    <path d="M12 2.5v19" markerStart="url(#wavesketch-eight-way-arrow)" markerEnd="url(#wavesketch-eight-way-arrow)" />
+    <path d="M4 4l16 16" markerStart="url(#wavesketch-eight-way-arrow)" markerEnd="url(#wavesketch-eight-way-arrow)" />
+    <path d="M20 4L4 20" markerStart="url(#wavesketch-eight-way-arrow)" markerEnd="url(#wavesketch-eight-way-arrow)" />
+  </svg>
+);
+
 function App() {
   const { t } = useI18n();
-  const [isTouchDevice, setIsTouchDevice] = useState(() => (
-    typeof window !== 'undefined' && (
-      navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640
-    )
-  ));
-  const [isCompactViewport, setIsCompactViewport] = useState(() => (
-    typeof window !== 'undefined' && window.innerWidth < 1024
-  ));
   const [zoomOverlayCollapsed, setZoomOverlayCollapsed] = useState(() => {
     try {
       return localStorage.getItem(ZOOM_OVERLAY_COLLAPSED_KEY) === 'true';
@@ -139,6 +150,57 @@ function App() {
       return false;
     }
   });
+  const [panConstraint, setPanConstraint] = useState<PanConstraint>(() => {
+    try {
+      const value = localStorage.getItem(PAN_CONSTRAINT_KEY);
+      return value === 'vertical' ? value : 'any';
+    } catch { return 'any'; }
+  });
+  const [cursorSnapEnabled, setCursorSnapEnabled] = useState(() => {
+    try { return localStorage.getItem('wavesketch.ui.cursorSnap') === 'true'; } catch { return false; }
+  });
+  const [zoomOverlayOffset, setZoomOverlayOffset] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(ZOOM_OVERLAY_POSITION_KEY) || '{}');
+      return { x: Number.isFinite(parsed.x) ? parsed.x : 0, y: Number.isFinite(parsed.y) ? parsed.y : 0 };
+    } catch { return { x: 0, y: 0 }; }
+  });
+  const zoomOverlayRef = React.useRef<HTMLElement | null>(null);
+  const zoomDragRef = React.useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
+
+  const clampZoomOverlayOffset = useCallback((offset: { x: number; y: number }) => {
+    const overlay = zoomOverlayRef.current;
+    const surface = overlay?.parentElement;
+    if (!overlay || !surface) return offset;
+    const margin = 8;
+    const inset = 12;
+    const baseLeft = surface.clientWidth - inset - overlay.offsetWidth;
+    const baseTop = surface.clientHeight - inset - overlay.offsetHeight;
+    return {
+      x: Math.min(Math.max(offset.x, margin - baseLeft), surface.clientWidth - margin - (baseLeft + overlay.offsetWidth)),
+      y: Math.min(Math.max(offset.y, margin - baseTop), surface.clientHeight - margin - (baseTop + overlay.offsetHeight)),
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const syncZoomOverlayPosition = () => {
+      const next = clampZoomOverlayOffset(zoomOverlayOffset);
+      if (next.x === zoomOverlayOffset.x && next.y === zoomOverlayOffset.y) return;
+      setZoomOverlayOffset(next);
+      try { localStorage.setItem(ZOOM_OVERLAY_POSITION_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    };
+    syncZoomOverlayPosition();
+    window.addEventListener('resize', syncZoomOverlayPosition);
+    const surface = zoomOverlayRef.current?.parentElement;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && surface
+      ? new ResizeObserver(syncZoomOverlayPosition)
+      : null;
+    if (resizeObserver && surface) resizeObserver.observe(surface);
+    return () => {
+      window.removeEventListener('resize', syncZoomOverlayPosition);
+      resizeObserver?.disconnect();
+    };
+  }, [clampZoomOverlayOffset, zoomOverlayCollapsed, zoomOverlayOffset]);
   const {
     segments,
     groups,
@@ -204,6 +266,7 @@ function App() {
     clearSegmentSelection,
     selectSegmentsInRect,
     deleteSelectedSegments,
+    deleteSegmentsInRect,
     setIsDraggingSelected,
     saveToHistory,
     moveSelectedSegments,
@@ -232,16 +295,8 @@ function App() {
   } = useWaveform();
 
   React.useEffect(() => {
-    const updateTouchDevice = () => {
-      setIsTouchDevice(
-        navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 640,
-      );
-      setIsCompactViewport(window.innerWidth < 1024);
-    };
-    updateTouchDevice();
-    window.addEventListener('resize', updateTouchDevice);
-    return () => window.removeEventListener('resize', updateTouchDevice);
-  }, []);
+    try { localStorage.setItem('wavesketch.ui.cursorSnap', String(cursorSnapEnabled)); } catch { /* ignore */ }
+  }, [cursorSnapEnabled]);
 
   const toggleZoomOverlay = useCallback(() => {
     setZoomOverlayCollapsed((collapsed) => {
@@ -254,6 +309,46 @@ function App() {
       return next;
     });
   }, []);
+
+  const handleZoomOverlayPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || ((event.target as HTMLElement).closest('button') && !zoomOverlayCollapsed)) return;
+    event.preventDefault();
+    zoomDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: zoomOverlayOffset.x, originY: zoomOverlayOffset.y, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [zoomOverlayOffset, zoomOverlayCollapsed]);
+
+  const handleZoomOverlayPointerMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const drag = zoomDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (Math.hypot(dx, dy) > 3) drag.moved = true;
+    if (!drag.moved) return;
+    const next = clampZoomOverlayOffset({ x: drag.originX + dx, y: drag.originY + dy });
+    if (zoomOverlayRef.current) {
+      zoomOverlayRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)${zoomOverlayCollapsed ? '' : ' scale(0.94)'}`;
+    }
+  }, [clampZoomOverlayOffset, zoomOverlayCollapsed]);
+
+  const handleZoomOverlayPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const drag = zoomDragRef.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    if (drag.moved) {
+      const next = clampZoomOverlayOffset({ x: drag.originX + event.clientX - drag.startX, y: drag.originY + event.clientY - drag.startY });
+      setZoomOverlayOffset(next);
+      try { localStorage.setItem(ZOOM_OVERLAY_POSITION_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    }
+    zoomDragRef.current = null;
+  }, [clampZoomOverlayOffset]);
+
+  const handleCollapsedZoomPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const drag = zoomDragRef.current;
+    if (drag?.pointerId === event.pointerId && !drag.moved) {
+      event.preventDefault();
+      toggleZoomOverlay();
+    }
+    handleZoomOverlayPointerUp(event);
+  }, [handleZoomOverlayPointerUp, toggleZoomOverlay]);
 
   // Drag state for edit mode
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ segmentId: string; point: 'start' | 'end' } | null>(null);
@@ -287,7 +382,39 @@ function App() {
   // Canvas panning state (middle-button drag or Space+left drag)
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
-  const panStartRef = React.useRef<{ clientX: number; clientY: number; centerX: number; centerY: number } | null>(null);
+  const panStartRef = React.useRef<{
+    clientX: number;
+    clientY: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
+  const waveformDragAxisRef = React.useRef<'x' | 'y' | null>(null);
+  const pendingShiftDragRef = React.useRef<{ segmentId: string; start: Point } | null>(null);
+
+  const constrainWaveformDragDelta = useCallback((dx: number, dy: number, shiftHeld: boolean) => {
+    // In free mode Shift is a temporary axis lock: releasing it restores
+    // unrestricted movement during the same drag.
+    if (panConstraint === 'any' && !shiftHeld) {
+      waveformDragAxisRef.current = null;
+      return { dx, dy };
+    }
+    if (shiftHeld || waveformDragAxisRef.current || panConstraint === 'vertical') {
+      // Use the smaller minor-grid spacing as the first meaningful movement
+      // unit, so pointer jitter below one grid cell cannot lock the gesture.
+      const minimumMinorGrid = Math.min(axisConfig.xGridSize, axisConfig.yGridSize);
+      if (!waveformDragAxisRef.current) {
+        const firstAxis = selectPanAxis(dx, dy, minimumMinorGrid);
+        if (!firstAxis) {
+          // Do not let grid snapping create a diagonal first move while the
+          // initial direction is still undecided.
+          return { dx: 0, dy: 0 };
+        }
+        waveformDragAxisRef.current = firstAxis;
+      }
+      return constrainPanAxis(dx, dy, waveformDragAxisRef.current);
+    }
+    return constrainPanDelta(dx, dy, panConstraint);
+  }, [panConstraint, axisConfig.xGridSize, axisConfig.yGridSize]);
 
   // Holding Space arms canvas panning
   React.useEffect(() => {
@@ -435,11 +562,19 @@ function App() {
   }, [canvasRef, setViewport]);
 
   // Pan by a screen-pixel delta (used by the two-finger touch gesture)
-  const handleTouchPan = useCallback((dxCss: number, dyCss: number) => {
+  const cyclePanConstraint = useCallback(() => {
+    setPanConstraint(previous => {
+      const next = previous === 'any' ? 'vertical' : 'any';
+      try { localStorage.setItem(PAN_CONSTRAINT_KEY, next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const handleTouchPan = useCallback((rawDxCss: number, rawDyCss: number) => {
     setViewport(prev => ({
       ...prev,
-      centerX: prev.centerX - dxCss / prev.scaleX,
-      centerY: prev.centerY + dyCss / prev.scaleY,
+      centerX: prev.centerX - rawDxCss / prev.scaleX,
+      centerY: prev.centerY + rawDyCss / prev.scaleY,
     }));
   }, [setViewport]);
 
@@ -694,8 +829,9 @@ function App() {
     e.preventDefault();
     setHoverInfo(null);
 
-    // Canvas panning: middle button or Space+left in any mode, or plain left drag in pan mode
-    if (e.button === 1 || ((spaceHeld || mode === 'pan') && e.button === 0)) {
+    // Canvas panning: middle button, Space+left, or plain left drag in pan mode.
+    // Shift is a constraint modifier during the pan, not a second pan shortcut.
+    if (e.button === 1 || (((spaceHeld || mode === 'pan') && e.button === 0))) {
       panStartRef.current = {
         clientX: e.clientX,
         clientY: e.clientY,
@@ -792,9 +928,12 @@ function App() {
       // Clicking empty space clears the selection
       clearSegmentSelection();
     } else if (mode === 'delete') {
-      const segmentId = checkSegmentHit(e, selectedGroup);
+      const segmentId = checkSegmentHit(e);
       if (segmentId) {
         deleteSegment(segmentId);
+      } else {
+        const rawPos = getMouseWorldPos(e);
+        setMarquee({ start: rawPos, end: rawPos });
       }
     } else if (mode === 'moveGroup') {
       if (selectedGroup) {
@@ -802,6 +941,7 @@ function App() {
         const snapped = snapToGrid(worldPos);
         setMovingGroup(selectedGroup);
         setMoveStartPoint(snapped);
+        waveformDragAxisRef.current = null;
         setMoveOffset({ x: 0, y: 0 }); // reset the offset
       }
     } else if (mode === 'select') {
@@ -815,11 +955,16 @@ function App() {
       const segmentId = checkSegmentHit(e);
       if (segmentId) {
         // Mouse-down on an already-selected segment (no Shift): start dragging the selection
-        if (selectedSegments.has(segmentId) && !e.shiftKey) {
+        if (selectedSegments.has(segmentId) && e.shiftKey) {
+          pendingShiftDragRef.current = { segmentId, start: snapToGrid(getMouseWorldPos(e)) };
+          return;
+        }
+        if (selectedSegments.has(segmentId)) {
           const worldPos = getMouseWorldPos(e);
           const snapped = snapToGrid(worldPos);
           setIsDraggingSelected(true);
           setDragStartPoint(snapped);
+          waveformDragAxisRef.current = null;
           setMoveOffset({ x: 0, y: 0 });
           return;
         }
@@ -854,6 +999,19 @@ function App() {
     const snapped = snapToGrid(worldPos);
     setCurrentMouse(snapped);
 
+    if (pendingShiftDragRef.current) {
+      const pending = pendingShiftDragRef.current;
+      const minGrid = Math.min(axisConfig.xGridSize, axisConfig.yGridSize);
+      const movedEnough = Math.hypot(worldPos.x - pending.start.x, worldPos.y - pending.start.y) >= minGrid;
+      if (movedEnough) {
+        pendingShiftDragRef.current = null;
+        waveformDragAxisRef.current = null;
+        setIsDraggingSelected(true);
+        setDragStartPoint(pending.start);
+        setMoveOffset({ x: 0, y: 0 });
+      }
+    }
+
     if (draggingCursorId) {
       const cursor = cursors.find(item => item.id === draggingCursorId);
       if (!cursor) {
@@ -861,7 +1019,7 @@ function App() {
         return;
       }
       const rawValue = cursor.axis === 'x' ? worldPos.x : worldPos.y;
-      const nextValue = e.shiftKey ? snapCursorValue(rawValue, cursor.axis, axisConfig) : rawValue;
+      const nextValue = (cursorSnapEnabled || e.shiftKey) ? snapCursorValue(rawValue, cursor.axis, axisConfig) : rawValue;
       if (Math.abs(nextValue - cursor.value) > 1e-12) {
         updateCursor(cursor.id, nextValue);
         cursorDragChangedRef.current = true;
@@ -907,15 +1065,14 @@ function App() {
       // Dragging a midpoint (adjusting the curve control point)
       updateControlPoint(draggingMidpoint, snapped);
     } else if (movingGroup && moveStartPoint) {
-      const rawDeltaX = snapped.x - moveStartPoint.x;
-      const rawDeltaY = snapped.y - moveStartPoint.y;
+      const constrained = constrainWaveformDragDelta(worldPos.x - moveStartPoint.x, worldPos.y - moveStartPoint.y, e.shiftKey);
       // Snap to the minor grid
-      const snapDeltaX = Math.round(rawDeltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
-      const snapDeltaY = Math.round(rawDeltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
+      const snapDeltaX = Math.round(constrained.dx / axisConfig.xGridSize) * axisConfig.xGridSize;
+      const snapDeltaY = Math.round(constrained.dy / axisConfig.yGridSize) * axisConfig.yGridSize;
       // Only move/update when there is an actual offset
       if (snapDeltaX !== 0 || snapDeltaY !== 0) {
         moveGroup(movingGroup, snapDeltaX, snapDeltaY);
-        setMoveStartPoint(snapped);
+        setMoveStartPoint({ x: moveStartPoint.x + snapDeltaX, y: moveStartPoint.y + snapDeltaY });
         // Accumulate the total offset for display
         setMoveOffset(prev => ({
           x: (prev?.x || 0) + snapDeltaX,
@@ -931,14 +1088,13 @@ function App() {
       setMarquee({ start: marquee.start, end: worldPos });
     } else if (isDraggingSelected && dragStartPoint) {
       // Dragging the selected segments
-      const rawDeltaX = snapped.x - dragStartPoint.x;
-      const rawDeltaY = snapped.y - dragStartPoint.y;
+      const constrained = constrainWaveformDragDelta(worldPos.x - dragStartPoint.x, worldPos.y - dragStartPoint.y, e.shiftKey);
       // Snap to the minor grid
-      const snapDeltaX = Math.round(rawDeltaX / axisConfig.xGridSize) * axisConfig.xGridSize;
-      const snapDeltaY = Math.round(rawDeltaY / axisConfig.yGridSize) * axisConfig.yGridSize;
+      const snapDeltaX = Math.round(constrained.dx / axisConfig.xGridSize) * axisConfig.xGridSize;
+      const snapDeltaY = Math.round(constrained.dy / axisConfig.yGridSize) * axisConfig.yGridSize;
       if (snapDeltaX !== 0 || snapDeltaY !== 0) {
         moveSelectedSegments(snapDeltaX, snapDeltaY);
-        setDragStartPoint(snapped);
+        setDragStartPoint({ x: dragStartPoint.x + snapDeltaX, y: dragStartPoint.y + snapDeltaY });
         // Accumulate the total offset for display
         setMoveOffset(prev => ({
           x: (prev?.x || 0) + snapDeltaX,
@@ -960,7 +1116,7 @@ function App() {
         setSelectCopyOffset({ x: copyPreviewOffset.x, y: copyPreviewOffset.y });
       }
     }
-  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingSineHandle, groups, axisConfig, updateParametricSine, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, mode, selectedGroup, checkSegmentHit, checkCursorHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee, scheduleHoverUpdate, draggingCursorId, cursors, updateCursor]);
+  }, [getMouseWorldPos, snapToGrid, isDrawing, drawStart, draggingSineHandle, groups, axisConfig, updateParametricSine, draggingControl, updateControlPoint, draggingMidpoint, movingGroup, moveStartPoint, moveGroup, setMoveStartPoint, draggingEndpoint, moveSegmentEndpoint, isDraggingSelected, dragStartPoint, moveSelectedSegments, setDragStartPoint, setIsDraggingSelected, mode, selectedGroup, checkSegmentHit, checkCursorHit, setActiveSegment, setCurrentMouse, isCopyPreview, updateCopyPreviewOffset, copyPreviewOffset, isPanning, setViewport, marquee, scheduleHoverUpdate, draggingCursorId, cursors, updateCursor, cursorSnapEnabled, constrainWaveformDragDelta]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
@@ -969,12 +1125,18 @@ function App() {
       return;
     }
     if (finishCursorDrag()) return;
+    if (pendingShiftDragRef.current) {
+      toggleSegmentSelection(pendingShiftDragRef.current.segmentId, true);
+      pendingShiftDragRef.current = null;
+      return;
+    }
     if (marquee) {
       // Rubber-band end: counts as a selection only if the rect exceeds a few pixels, otherwise it's a plain click
       const pxW = Math.abs(marquee.end.x - marquee.start.x) * viewport.scaleX;
       const pxH = Math.abs(marquee.end.y - marquee.start.y) * viewport.scaleY;
       if (pxW > 4 || pxH > 4) {
-        selectSegmentsInRect(marquee.start, marquee.end, marqueeAdditiveRef.current);
+        if (mode === 'delete') deleteSegmentsInRect(marquee.start, marquee.end);
+        else selectSegmentsInRect(marquee.start, marquee.end, marqueeAdditiveRef.current);
       }
       setMarquee(null);
       return;
@@ -1014,6 +1176,7 @@ function App() {
       setDraggingMidpoint(null);
     } else if (movingGroup) {
       finishMoveGroup();
+      waveformDragAxisRef.current = null;
       setMoveOffset(null); // clear the offset display
     } else if (draggingEndpoint) {
       // Endpoint drag finished: save history only if something changed
@@ -1031,9 +1194,10 @@ function App() {
         setIsDraggingSelected(false);
         setDragStartPoint(null);
       }
+      waveformDragAxisRef.current = null;
       setMoveOffset(null);
     }
-  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingSineHandle, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect, finishCursorDrag]);
+  }, [isDrawing, drawStart, currentMouse, addSegment, setIsDrawing, setDrawStart, setCurrentMouse, draggingSineHandle, draggingControl, setDraggingControl, draggingMidpoint, setDraggingMidpoint, movingGroup, finishMoveGroup, draggingEndpoint, setActiveSegment, isDraggingSelected, finishMoveSelectedSegments, moveOffset, setIsDraggingSelected, setDragStartPoint, saveToHistory, isPanning, marquee, viewport.scaleX, viewport.scaleY, selectSegmentsInRect, deleteSegmentsInRect, mode, finishCursorDrag, toggleSegmentSelection]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (mode === 'edit') {
@@ -1084,6 +1248,8 @@ function App() {
               onFocus={focusCursor}
               onDelete={deleteCursor}
               onIncludeInExportChange={setIncludeCursorsInExport}
+              snapEnabled={cursorSnapEnabled}
+              onSnapEnabledChange={setCursorSnapEnabled}
             />
             <TooltipButton tooltip={t('tipCopy')}>
               <Button variant="outline" size="sm" onClick={copyToClipboard} disabled={selectedSegments.size === 0} className="flex items-center gap-1">
@@ -1093,35 +1259,6 @@ function App() {
             <TooltipButton tooltip={t('tipPaste')}>
               <Button variant="outline" size="sm" onClick={pasteClipboard} disabled={clipboardSegments.length === 0} className="flex items-center gap-1">
                 <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
-              </Button>
-            </TooltipButton>
-          </div>
-
-          <div className="mx-1 hidden h-6 w-px shrink-0 bg-[var(--ws-border)] lg:block" />
-
-          <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:ml-auto lg:w-auto lg:shrink-0" aria-label={t('dataAndHistoryTools')}>
-            <TooltipButton tooltip={TOOLTIPS.svg}>
-              <Button variant="outline" size="sm" onClick={() => downloadSVG()} className="flex items-center gap-1">
-                <Image className="w-4 h-4" />SVG
-              </Button>
-            </TooltipButton>
-            <TooltipButton tooltip={TOOLTIPS.png}>
-              <Button variant="outline" size="sm" onClick={() => downloadPNG()} className="flex items-center gap-1">
-                <Image className="w-4 h-4" />PNG
-              </Button>
-            </TooltipButton>
-            <input type="file" id="import-json" accept=".json" className="hidden" onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) { handleImportJSON(file); e.target.value = ''; }
-            }} />
-            <TooltipButton tooltip={TOOLTIPS.import}>
-              <Button variant="outline" size="sm" onClick={() => document.getElementById('import-json')?.click()} className="flex items-center gap-1">
-                <Download className="w-4 h-4" />{t('actionImport')}
-              </Button>
-            </TooltipButton>
-            <TooltipButton tooltip={TOOLTIPS.export}>
-              <Button variant="outline" size="sm" onClick={() => downloadJSON()} className="flex items-center gap-1">
-                <FileJson className="w-4 h-4" />{t('actionExport')}
               </Button>
             </TooltipButton>
             <TooltipButton tooltip={TOOLTIPS.undo}>
@@ -1135,6 +1272,26 @@ function App() {
               </Button>
             </TooltipButton>
           </div>
+
+          <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:ml-auto lg:w-auto lg:shrink-0" aria-label={t('dataAndHistoryTools')}>
+            <input type="file" id="import-json" accept=".json" className="hidden" onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) { handleImportJSON(file); e.target.value = ''; }
+            }} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="flex items-center gap-1" title={t('fileManager')}>
+                  <FolderOpen className="w-4 h-4" />{t('fileManager')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                <DropdownMenuItem onSelect={() => downloadSVG()}><Image className="mr-2 size-4" />SVG</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => downloadPNG()}><Image className="mr-2 size-4" />PNG</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => downloadJSON()}><FileJson className="mr-2 size-4" />{t('actionExport')} JSON</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => document.getElementById('import-json')?.click()}><Download className="mr-2 size-4" />{t('actionImport')} JSON</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
       </div>
 
       <main className="min-h-0 flex-1 px-2 pb-2 lg:px-4">
@@ -1143,20 +1300,32 @@ function App() {
           <div className="flex h-full min-h-0 w-full flex-col gap-2">
             <div className="ws-surface relative min-h-0 flex-1 overflow-hidden rounded-xl bg-white" style={{ touchAction: 'none' }}>
               {/* Independent X/Y zoom controls, anchored away from the coordinate origin. */}
-              {isCompactViewport && zoomOverlayCollapsed ? (
+              {zoomOverlayCollapsed ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="ws-control-overlay absolute bottom-3 right-3 z-10 h-9 min-w-12 rounded-xl px-3 font-mono text-sm shadow-sm"
-                  onClick={toggleZoomOverlay}
+                  ref={(node) => { zoomOverlayRef.current = node; }}
+                  onClick={(event) => event.preventDefault()}
                   aria-label={t('zoomControls')}
                   aria-expanded="false"
                   title={t('zoomControls')}
+                  style={{ transform: `translate3d(${zoomOverlayOffset.x}px, ${zoomOverlayOffset.y}px, 0)`, touchAction: 'none' }}
+                  onPointerDown={handleZoomOverlayPointerDown}
+                  onPointerMove={handleZoomOverlayPointerMove}
+                  onPointerUp={handleCollapsedZoomPointerUp}
                 >
                   %
                 </Button>
               ) : (
-                <div className="ws-control-overlay ws-zoom-overlay absolute bottom-3 right-3 z-10 flex w-max max-w-[calc(100%-0.5rem)] origin-bottom-right scale-[0.94] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5">
+                <div
+                  ref={(node) => { zoomOverlayRef.current = node; }}
+                  className="ws-control-overlay ws-zoom-overlay absolute bottom-3 right-3 z-10 flex w-max max-w-[calc(100%-0.5rem)] origin-bottom-right scale-[0.94] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5"
+                  style={{ transform: `translate3d(${zoomOverlayOffset.x}px, ${zoomOverlayOffset.y}px, 0) scale(0.94)`, touchAction: 'none' }}
+                  onPointerDown={handleZoomOverlayPointerDown}
+                  onPointerMove={handleZoomOverlayPointerMove}
+                  onPointerUp={handleZoomOverlayPointerUp}
+                >
                   <div className="flex items-center justify-center gap-1">
                     <div className="flex shrink-0 flex-col gap-0.5">
                       <div className="flex items-center justify-center gap-1">
@@ -1184,8 +1353,30 @@ function App() {
                       >
                         <Hand className="h-3.5 w-3.5" />{t('pan')}
                       </Button>
-                      {isCompactViewport && (
-                        <Button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 min-w-8 px-1 text-sm"
+                        onClick={cyclePanConstraint}
+                        aria-label={panConstraint === 'any' ? t('panAny') : t('panVertical')}
+                        title={panConstraint === 'any' ? t('panAny') : t('panVertical')}
+                      >
+                        {panConstraint === 'any' ? <EightWayMoveIcon className="size-5" /> : <Move className="size-5" />}
+                      </Button>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 min-w-8 px-1 text-sm" aria-label={t('panHelpTitle')} title={t('panHelpTitle')}>
+                            <HelpCircle className="size-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-64 text-xs leading-5">
+                          <div className="mb-1 font-semibold">{t('panHelpTitle')}</div>
+                          <div>{t('panHelp1')}</div>
+                          <div>{t('panHelp2')}</div>
+                          <div>{t('panHelp3')}</div>
+                        </PopoverContent>
+                      </Popover>
+                      <Button
                           variant="ghost"
                           size="sm"
                           className="h-8 min-w-8 px-1 text-sm"
@@ -1195,18 +1386,16 @@ function App() {
                           title={t('zoomControls')}
                         >
                           ×
-                        </Button>
-                      )}
+                      </Button>
                     </div>
                   </div>
-                  {!isTouchDevice && <div className="max-w-full text-center text-sm leading-tight text-[var(--ws-muted)]">{t('panHint')}</div>}
                 </div>
               )}
 
               {/* Offset readout (while moving a group or previewing a paste) */}
               {moveOffset && (
                 <div
-                  className="absolute right-3 top-3 z-10 rounded-lg border border-black/20 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
+                  className="absolute right-24 top-3 z-20 rounded-lg border border-black/20 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
                   style={{ backgroundColor: 'rgba(17, 17, 17, 0.92)', color: '#ffffff' }}
                   aria-live="polite"
                 >
@@ -1218,7 +1407,7 @@ function App() {
               {/* Paste-preview offset readout (top-right of canvas) */}
               {isCopyPreview && selectCopyOffset && (
                 <div
-                  className="absolute right-3 top-3 z-10 rounded-lg border border-white/25 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
+                  className="absolute right-24 top-3 z-20 rounded-lg border border-white/25 px-3 py-2 font-mono text-sm shadow-lg backdrop-blur-sm"
                   style={{ backgroundColor: 'rgba(30, 43, 250, 0.94)', color: '#ffffff' }}
                   aria-live="polite"
                 >

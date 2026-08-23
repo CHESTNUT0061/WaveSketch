@@ -9,6 +9,20 @@ All notable changes to WaveSketch are documented in this file.
 - Improved contrast for the canvas coordinate-difference readout.
 - Mobile waveform drawers now resize to the visible viewport when the keyboard opens instead of being repositioned upward.
 
+## [1.0.6] - 2026-08-21
+
+### Added
+
+- Delete mode now supports both single-segment clicks and rubber-band batch deletion on touch and desktop.
+- Touch pan direction cycling, optional Cursor snapping, collapsible responsive canvas controls, and the EE toolbox recommendation link.
+- The About dialog now includes an in-dialog, scrollable version history with changes compared with the previous recorded version.
+
+### Changed
+
+- File import/export actions are grouped under File manager; undo and redo now follow copy and paste.
+- Waveform rendering and SVG/PNG export use rounded line caps and joins.
+- Holding Shift while panning constrains the gesture to the first horizontal or vertical direction.
+
 ## [1.0.2] - 2026-08-02
 
 ### Fixed
@@ -28,7 +42,7 @@ All notable changes to WaveSketch are documented in this file.
 - The footer chestnut now preloads both states and animates when the links menu opens or closes.
 - The mobile waveform drawer scrolls to its final controls and respects the device bottom safe area.
 
-## [1.0] - 2026-08-01
+## [1.0.0] - 2026-08-01
 
 ### Added
 

@@ -52,7 +52,7 @@ export function renderSvgLegend(layout: LegendLayout, padding: number, plotHeigh
     const y = legendTop + item.y + 13;
     const x = padding + item.x;
     svg += `    <g id="legend-item-${escapeXml(group.id)}">\n`;
-    svg += `      <line x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(x + 34).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${group.color}" stroke-width="${group.lineWidth ?? DEFAULT_LINE_WIDTH}"${dashAttr}${opacityAttr}/>\n`;
+    svg += `      <line x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(x + 34).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${group.color}" stroke-width="${group.lineWidth ?? DEFAULT_LINE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${opacityAttr}/>\n`;
     svg += `      <text font-family="sans-serif" font-size="13" fill="#1f2937" x="${(x + 44).toFixed(2)}" y="${(y + 4).toFixed(2)}">${escapeXml(group.name)}</text>\n`;
     svg += `    </g>\n`;
   });
