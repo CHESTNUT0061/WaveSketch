@@ -13,7 +13,7 @@ import { AxisSettingsPanel } from '@/components/AxisSettingsPanel';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
 import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
-import { constrainPanAxis, constrainPanDelta, type PanConstraint } from '@/lib/panConstraint';
+import { constrainPanAxis, constrainPanDelta, selectPanAxis, type PanConstraint } from '@/lib/panConstraint';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -402,8 +402,14 @@ function App() {
       // Use the smaller minor-grid spacing as the first meaningful movement
       // unit, so pointer jitter below one grid cell cannot lock the gesture.
       const minimumMinorGrid = Math.min(axisConfig.xGridSize, axisConfig.yGridSize);
-      if (!waveformDragAxisRef.current && Math.hypot(dx, dy) >= minimumMinorGrid) {
-        waveformDragAxisRef.current = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+      if (!waveformDragAxisRef.current) {
+        const firstAxis = selectPanAxis(dx, dy, minimumMinorGrid);
+        if (!firstAxis) {
+          // Do not let grid snapping create a diagonal first move while the
+          // initial direction is still undecided.
+          return { dx: 0, dy: 0 };
+        }
+        waveformDragAxisRef.current = firstAxis;
       }
       return constrainPanAxis(dx, dy, waveformDragAxisRef.current);
     }
