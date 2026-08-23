@@ -25,6 +25,8 @@ test('renders escaped names and exact line styling', () => {
   assert.match(svg, /Gate &lt;A&amp;B&gt;/);
   assert.match(svg, /stroke="#123456"/);
   assert.match(svg, /stroke-width="3"/);
+  assert.match(svg, /stroke-linecap="round"/);
+  assert.match(svg, /stroke-linejoin="round"/);
   assert.match(svg, /stroke-dasharray="8,5"/);
   assert.match(svg, /stroke-opacity="0.6"/);
 });

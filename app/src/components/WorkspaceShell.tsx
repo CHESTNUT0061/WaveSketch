@@ -51,19 +51,15 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   React.useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const fullViewportHeight = { current: Math.max(viewport.height, window.innerHeight) };
-
     const updateVisualViewportHeight = () => {
-      const activeElement = document.activeElement;
-      const isInputFocused = activeElement instanceof HTMLInputElement
-        || activeElement instanceof HTMLTextAreaElement
-        || activeElement instanceof HTMLSelectElement
-        || activeElement?.getAttribute('contenteditable') === 'true';
-      const keyboardVisible = isInputFocused && viewport.height < fullViewportHeight.current - 120;
+      // Android browsers can keep the input focused after the keyboard closes.
+      // Use the visual-vs-layout viewport delta as the source of truth instead
+      // of requiring focusout, then clear the override as soon as the viewport
+      // returns to its layout height.
+      const keyboardVisible = viewport.height < window.innerHeight - 120;
       if (keyboardVisible) {
         setKeyboardViewportHeight(viewport.height);
       } else {
-        fullViewportHeight.current = Math.max(fullViewportHeight.current, viewport.height, window.innerHeight);
         setKeyboardViewportHeight(null);
       }
     };

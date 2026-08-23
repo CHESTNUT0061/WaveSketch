@@ -10,6 +10,9 @@ const S = {
   appTitle: { zh: 'WaveSketch', en: 'WaveSketch' },
   appTagline: { zh: '为论文、演示与技术分享绘制清晰波形', en: 'Clear waveforms for papers, presentations, and technical work' },
   aboutButton: { zh: '关于', en: 'About' },
+  changelogButton: { zh: '更新日志', en: 'Changelog' },
+  changelogTitle: { zh: '更新日志', en: 'Changelog' },
+  changelogBack: { zh: '返回关于', en: 'Back to About' },
   aboutTitle: { zh: '轻量、精确的波形工作区', en: 'A focused workspace for precise waveforms' },
   aboutDescription: { zh: '打开网页即可绘制、生成、计算和导出波形。界面为高密度工程操作设计，波形数据始终保留在你的浏览器中。', en: 'Draw, generate, calculate, and export waveforms directly in the browser. The workspace is designed for dense engineering tasks while waveform data stays in your browser.' },
   aboutFeatureDraw: { zh: '绘制与编辑', en: 'Draw and edit' },
@@ -39,7 +42,8 @@ const S = {
   cursorHide: { zh: '隐藏 Cursor', en: 'Hide cursor' },
   cursorLocate: { zh: '定位到 Cursor', en: 'Center on cursor' },
   cursorDelete: { zh: '删除 Cursor', en: 'Delete cursor' },
-  cursorDragHint: { zh: '拖动虚线；Shift 吸附小网格', en: 'Drag the dashed line; Shift snaps to minor grid' },
+  cursorDragHint: { zh: '拖动虚线；可开启小网格吸附', en: 'Drag the dashed line; optionally snap to the minor grid' },
+  cursorSnap: { zh: '拖动时吸附小网格', en: 'Snap while dragging' },
 
   // Top-right actions
   actionImport: { zh: '导入', en: 'Import' },
@@ -50,7 +54,7 @@ const S = {
   // Tooltips
   tipDraw: { zh: '点击并拖动画直线，吸附格点', en: 'Click and drag to draw a line, snapped to the grid' },
   tipEdit: { zh: '先选组，再拖动端点/中点/控制点；正弦、整流正弦与阻尼振荡均按半周期分段编辑', en: 'Select a group first, then drag endpoints / midpoints / control points; sine, rectified sine, and damped ringing use half-cycle segments' },
-  tipDelete: { zh: '点击线段删除', en: 'Click a segment to delete it' },
+  tipDelete: { zh: '点击线段删除；拖动空白处框选删除', en: 'Click a segment to delete it; drag empty space to delete a selection' },
   tipMoveGroup: { zh: '拖动整组波形移动', en: 'Drag to move the whole group' },
   tipSelect: { zh: '点击选中，拖空白框选，Shift连选，拖动移动，Delete删除，Ctrl+C复制', en: 'Click to select, drag empty space to rubber-band, Shift to multi-select, drag to move, Delete to remove, Ctrl+C to copy' },
   tipUndo: { zh: '撤销上一步操作', en: 'Undo the last action' },
@@ -69,8 +73,15 @@ const S = {
   zoomYOut: { zh: '纵轴缩小', en: 'Zoom Y out' },
   zoomYIn: { zh: '纵轴放大', en: 'Zoom Y in' },
   zoomControls: { zh: '缩放控件', en: 'Zoom controls' },
+  fileManager: { zh: '文件管理', en: 'File manager' },
+  panAny: { zh: '任意方向平移', en: 'Free pan' },
+  panVertical: { zh: '横向或纵向平移', en: 'Axis-aligned pan' },
   tipPan: { zh: '拖动平移画布（触屏单指拖动，双指捏合缩放）', en: 'Drag to pan the canvas (one-finger drag on touch, two-finger pinch to zoom)' },
-  panHint: { zh: '中键/空格拖拽 · Shift+滚轮：横轴缩放', en: 'Middle/Space drag · Shift+wheel: X-axis zoom' },
+  panHint: { zh: '中键/空格拖拽 · 平移时按住 Shift 锁定横向或垂直方向 · Shift+滚轮：横轴缩放', en: 'Middle/Space drag · hold Shift while panning to lock horizontal or vertical movement · Shift+wheel: X-axis zoom' },
+  panHelpTitle: { zh: '操作提示', en: 'Interaction tips' },
+  panHelp1: { zh: '1. 中键 / Space / 平移模式：平移画布', en: '1. Middle button / Space / Pan mode: pan the canvas' },
+  panHelp2: { zh: '2. 平移时按住 Shift：锁定首次移动方向', en: '2. Hold Shift while panning: lock the first movement axis' },
+  panHelp3: { zh: '3. Shift + 滚轮：横轴缩放', en: '3. Shift + wheel: zoom the X axis' },
 
   // Offset readouts
   cells: { zh: '格', en: 'cells' },
