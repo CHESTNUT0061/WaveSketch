@@ -132,11 +132,11 @@
     background: color-mix(in srgb, var(--ws-cream) 88%, transparent);
   }
 
-  .ws-about-body button {
+  .ws-about-body [data-slot="button"] {
     min-height: 1.75rem;
     height: 1.75rem;
     padding-inline: 0.5rem;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
   }
 }
 
@@ -307,6 +307,13 @@
     border: 1px solid var(--ws-border);
     box-shadow: 0 10px 28px rgba(17, 17, 17, 0.1);
     backdrop-filter: blur(12px);
+  }
+
+  .ws-control-overlay[data-ws-dragging='true'] {
+    backdrop-filter: none;
+    box-shadow: 0 4px 12px rgba(17, 17, 17, 0.12);
+    transition: none !important;
+    will-change: transform;
   }
 
   .ws-inspector-scroll {
