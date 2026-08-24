@@ -439,6 +439,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Input
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              handleCreateGroup();
+              event.currentTarget.blur();
+            }}
+            enterKeyHint="done"
             placeholder={t('newGroupPlaceholder')}
             className="h-8 flex-1"
           />

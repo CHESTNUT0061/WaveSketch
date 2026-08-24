@@ -14,6 +14,14 @@ import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
 import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
 import { constrainPanAxis, constrainPanDelta, selectPanAxis, type PanConstraint } from '@/lib/panConstraint';
+import {
+  constrainOverlayPosition,
+  migrateLegacyOverlayPosition,
+  serializeOverlayPosition,
+  type OverlayPosition,
+  type OverlayRect,
+  type OverlaySize,
+} from '@/lib/floatingOverlay';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -22,6 +30,14 @@ type SineHandle = 'move' | 'amplitude' | 'period';
 const ZOOM_OVERLAY_COLLAPSED_KEY = 'wavesketch.ui.zoomOverlayCollapsed';
 const ZOOM_OVERLAY_POSITION_KEY = 'wavesketch.ui.zoomOverlayPosition';
 const PAN_CONSTRAINT_KEY = 'wavesketch.ui.panConstraint';
+
+function readStoredZoomOverlayPosition(): unknown {
+  try {
+    return JSON.parse(localStorage.getItem(ZOOM_OVERLAY_POSITION_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
 
 interface HoverInfo {
   x: number;
@@ -49,9 +65,10 @@ interface TooltipButtonProps {
   children: React.ReactNode;
   tooltip: string;
   position?: 'top' | 'bottom' | 'left' | 'right';
+  className?: string;
 }
 
-const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, position = 'bottom' }) => {
+const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, position = 'bottom', className = '' }) => {
   const [show, setShow] = useState(false);
   const buttonRef = React.useRef<HTMLDivElement>(null);
   const tooltipRef = React.useRef<HTMLDivElement>(null);
@@ -78,7 +95,7 @@ const TooltipButton: React.FC<TooltipButtonProps> = ({ children, tooltip, positi
   return (
     <div
       ref={buttonRef}
-      className="relative inline-block shrink-0"
+      className={`relative shrink-0 ${className || 'inline-block'}`}
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
     >
@@ -159,48 +176,126 @@ function App() {
   const [cursorSnapEnabled, setCursorSnapEnabled] = useState(() => {
     try { return localStorage.getItem('wavesketch.ui.cursorSnap') === 'true'; } catch { return false; }
   });
-  const [zoomOverlayOffset, setZoomOverlayOffset] = useState(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(ZOOM_OVERLAY_POSITION_KEY) || '{}');
-      return { x: Number.isFinite(parsed.x) ? parsed.x : 0, y: Number.isFinite(parsed.y) ? parsed.y : 0 };
-    } catch { return { x: 0, y: 0 }; }
+  const [initialStoredZoomOverlayPosition] = useState(readStoredZoomOverlayPosition);
+  const [zoomOverlayPosition, setZoomOverlayPosition] = useState<OverlayPosition | null>(() => {
+    if (!initialStoredZoomOverlayPosition || typeof initialStoredZoomOverlayPosition !== 'object') return null;
+    const stored = initialStoredZoomOverlayPosition as { version?: number; x?: number; y?: number };
+    return stored.version === 2 && Number.isFinite(stored.x) && Number.isFinite(stored.y)
+      ? { x: stored.x as number, y: stored.y as number }
+      : null;
   });
   const zoomOverlayRef = React.useRef<HTMLElement | null>(null);
-  const zoomDragRef = React.useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
+  const zoomOverlayPositionRef = React.useRef<OverlayPosition | null>(zoomOverlayPosition);
+  const zoomDragRef = React.useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    grabX: number;
+    grabY: number;
+    surfaceLeft: number;
+    surfaceTop: number;
+    bounds: OverlaySize;
+    size: OverlaySize;
+    exclusion: OverlayRect | null;
+    position: OverlayPosition;
+    moved: boolean;
+  } | null>(null);
 
-  const clampZoomOverlayOffset = useCallback((offset: { x: number; y: number }) => {
+  const readZoomOverlayGeometry = useCallback(() => {
     const overlay = zoomOverlayRef.current;
     const surface = overlay?.parentElement;
-    if (!overlay || !surface) return offset;
-    const margin = 8;
-    const inset = 12;
-    const baseLeft = surface.clientWidth - inset - overlay.offsetWidth;
-    const baseTop = surface.clientHeight - inset - overlay.offsetHeight;
+    if (!overlay || !surface) return null;
+    const surfaceRect = surface.getBoundingClientRect();
+    const surfaceLeft = surfaceRect.left + surface.clientLeft;
+    const surfaceTop = surfaceRect.top + surface.clientTop;
+    const inspectorTrigger = document.querySelector<HTMLElement>('[data-ws-overlay-exclusion="inspector-trigger"]');
+    const triggerRect = inspectorTrigger?.getBoundingClientRect();
     return {
-      x: Math.min(Math.max(offset.x, margin - baseLeft), surface.clientWidth - margin - (baseLeft + overlay.offsetWidth)),
-      y: Math.min(Math.max(offset.y, margin - baseTop), surface.clientHeight - margin - (baseTop + overlay.offsetHeight)),
+      surfaceLeft,
+      surfaceTop,
+      bounds: { width: surface.clientWidth, height: surface.clientHeight },
+      size: { width: overlay.offsetWidth, height: overlay.offsetHeight },
+      exclusion: triggerRect ? {
+        x: triggerRect.left - surfaceLeft,
+        y: triggerRect.top - surfaceTop,
+        width: triggerRect.width,
+        height: triggerRect.height,
+      } : null,
     };
+  }, []);
+
+  const getConstrainedZoomOverlayPosition = useCallback((position: OverlayPosition) => {
+    const geometry = readZoomOverlayGeometry();
+    if (!geometry) return position;
+    return constrainOverlayPosition(
+      position,
+      geometry.size,
+      geometry.bounds,
+      geometry.exclusion,
+    );
+  }, [readZoomOverlayGeometry]);
+
+  const applyZoomOverlayPosition = useCallback((position: OverlayPosition) => {
+    if (zoomOverlayRef.current) {
+      zoomOverlayRef.current.style.transform = `translate3d(${position.x}px, ${position.y}px, 0)`;
+      zoomOverlayRef.current.style.visibility = 'visible';
+    }
+  }, []);
+
+  const commitZoomOverlayPosition = useCallback((position: OverlayPosition) => {
+    zoomOverlayPositionRef.current = position;
+    setZoomOverlayPosition(position);
+    try {
+      localStorage.setItem(ZOOM_OVERLAY_POSITION_KEY, JSON.stringify(serializeOverlayPosition(position)));
+    } catch { /* ignore */ }
   }, []);
 
   React.useLayoutEffect(() => {
     const syncZoomOverlayPosition = () => {
-      const next = clampZoomOverlayOffset(zoomOverlayOffset);
-      if (next.x === zoomOverlayOffset.x && next.y === zoomOverlayOffset.y) return;
-      setZoomOverlayOffset(next);
-      try { localStorage.setItem(ZOOM_OVERLAY_POSITION_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      const overlay = zoomOverlayRef.current;
+      const surface = overlay?.parentElement;
+      if (!overlay || !surface) return;
+      const preferredPosition = zoomOverlayPositionRef.current
+        ?? migrateLegacyOverlayPosition(
+          initialStoredZoomOverlayPosition,
+          { width: surface.clientWidth, height: surface.clientHeight },
+          { width: overlay.offsetWidth, height: overlay.offsetHeight },
+        )
+        ?? {
+          x: surface.clientWidth - 12 - overlay.offsetWidth,
+            y: surface.clientHeight - 12 - overlay.offsetHeight,
+          };
+      if (!zoomOverlayPositionRef.current) {
+        zoomOverlayPositionRef.current = preferredPosition;
+      }
+      const next = getConstrainedZoomOverlayPosition(preferredPosition);
+      applyZoomOverlayPosition(next);
+      setZoomOverlayPosition((previous) => (
+        previous && previous.x === next.x && previous.y === next.y ? previous : next
+      ));
     };
     syncZoomOverlayPosition();
+    const frame = requestAnimationFrame(syncZoomOverlayPosition);
     window.addEventListener('resize', syncZoomOverlayPosition);
+    // Mobile and Pad drawers are fixed Portal layers. They must not participate
+    // in zoom-overlay positioning when their height or keyboard viewport changes.
+    // Desktop still observes the canvas because its resizable inspector changes
+    // the actual canvas bounds.
     const surface = zoomOverlayRef.current?.parentElement;
-    const resizeObserver = typeof ResizeObserver !== 'undefined' && surface
+    const resizeObserver = window.innerWidth >= 1024 && typeof ResizeObserver !== 'undefined' && surface
       ? new ResizeObserver(syncZoomOverlayPosition)
       : null;
-    if (resizeObserver && surface) resizeObserver.observe(surface);
+    if (resizeObserver && surface) {
+      resizeObserver.observe(surface);
+      if (zoomOverlayRef.current) resizeObserver.observe(zoomOverlayRef.current);
+    }
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('resize', syncZoomOverlayPosition);
       resizeObserver?.disconnect();
     };
-  }, [clampZoomOverlayOffset, zoomOverlayCollapsed, zoomOverlayOffset]);
+  }, [applyZoomOverlayPosition, commitZoomOverlayPosition, getConstrainedZoomOverlayPosition, initialStoredZoomOverlayPosition, zoomOverlayCollapsed]);
+
   const {
     segments,
     groups,
@@ -312,10 +407,28 @@ function App() {
 
   const handleZoomOverlayPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || ((event.target as HTMLElement).closest('button') && !zoomOverlayCollapsed)) return;
+    const overlay = zoomOverlayRef.current;
+    const geometry = readZoomOverlayGeometry();
+    if (!overlay || !geometry) return;
     event.preventDefault();
-    zoomDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: zoomOverlayOffset.x, originY: zoomOverlayOffset.y, moved: false };
+    const overlayRect = overlay.getBoundingClientRect();
+    zoomDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      grabX: event.clientX - overlayRect.left,
+      grabY: event.clientY - overlayRect.top,
+      surfaceLeft: geometry.surfaceLeft,
+      surfaceTop: geometry.surfaceTop,
+      bounds: geometry.bounds,
+      size: geometry.size,
+      exclusion: geometry.exclusion,
+      position: { x: overlayRect.left - geometry.surfaceLeft, y: overlayRect.top - geometry.surfaceTop },
+      moved: false,
+    };
+    event.currentTarget.dataset.wsDragging = 'true';
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [zoomOverlayOffset, zoomOverlayCollapsed]);
+  }, [readZoomOverlayGeometry, zoomOverlayCollapsed]);
 
   const handleZoomOverlayPointerMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const drag = zoomDragRef.current;
@@ -324,22 +437,23 @@ function App() {
     const dy = event.clientY - drag.startY;
     if (Math.hypot(dx, dy) > 3) drag.moved = true;
     if (!drag.moved) return;
-    const next = clampZoomOverlayOffset({ x: drag.originX + dx, y: drag.originY + dy });
-    if (zoomOverlayRef.current) {
-      zoomOverlayRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)${zoomOverlayCollapsed ? '' : ' scale(0.94)'}`;
-    }
-  }, [clampZoomOverlayOffset, zoomOverlayCollapsed]);
+    drag.position = constrainOverlayPosition({
+      x: event.clientX - drag.surfaceLeft - drag.grabX,
+      y: event.clientY - drag.surfaceTop - drag.grabY,
+    }, drag.size, drag.bounds, drag.exclusion);
+    applyZoomOverlayPosition(drag.position);
+  }, [applyZoomOverlayPosition]);
 
   const handleZoomOverlayPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const drag = zoomDragRef.current;
     if (drag?.pointerId !== event.pointerId) return;
+    event.currentTarget.dataset.wsDragging = 'false';
     if (drag.moved) {
-      const next = clampZoomOverlayOffset({ x: drag.originX + event.clientX - drag.startX, y: drag.originY + event.clientY - drag.startY });
-      setZoomOverlayOffset(next);
-      try { localStorage.setItem(ZOOM_OVERLAY_POSITION_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      applyZoomOverlayPosition(drag.position);
+      commitZoomOverlayPosition(drag.position);
     }
     zoomDragRef.current = null;
-  }, [clampZoomOverlayOffset]);
+  }, [applyZoomOverlayPosition, commitZoomOverlayPosition]);
 
   const handleCollapsedZoomPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const drag = zoomDragRef.current;
@@ -1261,12 +1375,12 @@ function App() {
                 <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
               </Button>
             </TooltipButton>
-            <TooltipButton tooltip={TOOLTIPS.undo}>
+            <TooltipButton tooltip={TOOLTIPS.undo} className="hidden sm:inline-block">
               <Button variant="outline" size="sm" onClick={undo} disabled={!canUndo} className="flex items-center gap-1">
                 <Undo2 className="w-4 h-4" />{t('actionUndo')}
               </Button>
             </TooltipButton>
-            <TooltipButton tooltip={TOOLTIPS.redo}>
+            <TooltipButton tooltip={TOOLTIPS.redo} className="hidden sm:inline-block">
               <Button variant="outline" size="sm" onClick={redo} disabled={!canRedo} className="flex items-center gap-1">
                 <Redo2 className="w-4 h-4" />{t('actionRedo')}
               </Button>
@@ -1274,6 +1388,16 @@ function App() {
           </div>
 
           <div className="ws-command-row ws-scroll-fade min-w-0 w-full lg:ml-auto lg:w-auto lg:shrink-0" aria-label={t('dataAndHistoryTools')}>
+            <TooltipButton tooltip={TOOLTIPS.undo} className="inline-block sm:hidden">
+              <Button variant="outline" size="sm" onClick={undo} disabled={!canUndo} className="flex items-center gap-1">
+                <Undo2 className="w-4 h-4" />{t('actionUndo')}
+              </Button>
+            </TooltipButton>
+            <TooltipButton tooltip={TOOLTIPS.redo} className="inline-block sm:hidden">
+              <Button variant="outline" size="sm" onClick={redo} disabled={!canRedo} className="flex items-center gap-1">
+                <Redo2 className="w-4 h-4" />{t('actionRedo')}
+              </Button>
+            </TooltipButton>
             <input type="file" id="import-json" accept=".json" className="hidden" onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) { handleImportJSON(file); e.target.value = ''; }
@@ -1304,27 +1428,37 @@ function App() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="ws-control-overlay absolute bottom-3 right-3 z-10 h-9 min-w-12 rounded-xl px-3 font-mono text-sm shadow-sm"
+                  className="ws-control-overlay absolute left-0 top-0 z-10 h-9 min-w-12 rounded-xl px-3 font-mono text-sm shadow-sm"
                   ref={(node) => { zoomOverlayRef.current = node; }}
                   onClick={(event) => event.preventDefault()}
                   aria-label={t('zoomControls')}
                   aria-expanded="false"
                   title={t('zoomControls')}
-                  style={{ transform: `translate3d(${zoomOverlayOffset.x}px, ${zoomOverlayOffset.y}px, 0)`, touchAction: 'none' }}
+                  style={{
+                    transform: `translate3d(${zoomOverlayPosition?.x ?? 0}px, ${zoomOverlayPosition?.y ?? 0}px, 0)`,
+                    touchAction: 'none',
+                    visibility: zoomOverlayPosition ? 'visible' : 'hidden',
+                  }}
                   onPointerDown={handleZoomOverlayPointerDown}
                   onPointerMove={handleZoomOverlayPointerMove}
                   onPointerUp={handleCollapsedZoomPointerUp}
+                  onPointerCancel={handleZoomOverlayPointerUp}
                 >
                   %
                 </Button>
               ) : (
                 <div
                   ref={(node) => { zoomOverlayRef.current = node; }}
-                  className="ws-control-overlay ws-zoom-overlay absolute bottom-3 right-3 z-10 flex w-max max-w-[calc(100%-0.5rem)] origin-bottom-right scale-[0.94] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5"
-                  style={{ transform: `translate3d(${zoomOverlayOffset.x}px, ${zoomOverlayOffset.y}px, 0) scale(0.94)`, touchAction: 'none' }}
+                  className="ws-control-overlay ws-zoom-overlay absolute left-0 top-0 z-10 flex w-max max-w-[calc(100%-0.5rem)] flex-col gap-1 rounded-2xl border border-[var(--ws-border)] px-2 py-1.5"
+                  style={{
+                    transform: `translate3d(${zoomOverlayPosition?.x ?? 0}px, ${zoomOverlayPosition?.y ?? 0}px, 0)`,
+                    touchAction: 'none',
+                    visibility: zoomOverlayPosition ? 'visible' : 'hidden',
+                  }}
                   onPointerDown={handleZoomOverlayPointerDown}
                   onPointerMove={handleZoomOverlayPointerMove}
                   onPointerUp={handleZoomOverlayPointerUp}
+                  onPointerCancel={handleZoomOverlayPointerUp}
                 >
                   <div className="flex items-center justify-center gap-1">
                     <div className="flex shrink-0 flex-col gap-0.5">

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { NumberInput } from '@/components/NumberInput';
 import { useI18n } from '@/i18n';
 import type { AxisConfig } from '@/types/waveform';
+import { isCollapsibleAxisViewport } from '@/lib/responsiveLayout';
 
 const AXIS_EXPANDED_KEY = 'wavesketch.ui.axisSettingsExpanded';
 
@@ -17,7 +18,11 @@ function loadMobileExpanded() {
 }
 
 function isCompactViewport() {
-  return window.innerWidth <= 1024 || window.innerHeight < 600;
+  return isCollapsibleAxisViewport(
+    window.innerWidth,
+    window.innerHeight,
+    window.matchMedia('(pointer: coarse)').matches,
+  );
 }
 
 interface AxisSettingsPanelProps {
@@ -31,9 +36,16 @@ export function AxisSettingsPanel({ axisConfig, onChange }: AxisSettingsPanelPro
   const [compactViewport, setCompactViewport] = React.useState(isCompactViewport);
 
   React.useEffect(() => {
+    const coarsePointer = window.matchMedia('(pointer: coarse)');
     const updateViewport = () => setCompactViewport(isCompactViewport());
     window.addEventListener('resize', updateViewport);
-    return () => window.removeEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+    coarsePointer.addEventListener('change', updateViewport);
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+      coarsePointer.removeEventListener('change', updateViewport);
+    };
   }, []);
 
   const toggleMobile = () => {

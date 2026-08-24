@@ -40,7 +40,9 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   const [inspectorSize, setInspectorSize] = React.useState(readInspectorSize);
   const [inspectorCollapsed, setInspectorCollapsed] = React.useState(readInspectorCollapsed);
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const [keyboardViewportHeight, setKeyboardViewportHeight] = React.useState<number | null>(null);
+  const [visualViewportHeight, setVisualViewportHeight] = React.useState<number | null>(() =>
+    window.visualViewport ? Math.round(window.visualViewport.height) : null,
+  );
 
   React.useEffect(() => {
     const handleResize = () => setViewportMode(getViewportMode());
@@ -51,30 +53,42 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
   React.useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    const settleTimers = new Set<ReturnType<typeof setTimeout>>();
+    let settleFrame: number | null = null;
     const updateVisualViewportHeight = () => {
-      // Android browsers can keep the input focused after the keyboard closes.
-      // Use the visual-vs-layout viewport delta as the source of truth instead
-      // of requiring focusout, then clear the override as soon as the viewport
-      // returns to its layout height.
-      const keyboardVisible = viewport.height < window.innerHeight - 120;
-      if (keyboardVisible) {
-        setKeyboardViewportHeight(viewport.height);
-      } else {
-        setKeyboardViewportHeight(null);
-      }
+      setVisualViewportHeight(Math.round(viewport.height));
+    };
+    const settleVisualViewportHeight = () => {
+      updateVisualViewportHeight();
+      if (settleFrame !== null) cancelAnimationFrame(settleFrame);
+      settleFrame = requestAnimationFrame(updateVisualViewportHeight);
+      [150, 350].forEach((delay) => {
+        const timer = setTimeout(() => {
+          settleTimers.delete(timer);
+          updateVisualViewportHeight();
+        }, delay);
+        settleTimers.add(timer);
+      });
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') settleVisualViewportHeight();
     };
     updateVisualViewportHeight();
     viewport.addEventListener('resize', updateVisualViewportHeight);
     viewport.addEventListener('scroll', updateVisualViewportHeight);
     window.addEventListener('resize', updateVisualViewportHeight);
-    window.addEventListener('focusin', updateVisualViewportHeight);
-    window.addEventListener('focusout', updateVisualViewportHeight);
+    window.addEventListener('focusin', settleVisualViewportHeight);
+    window.addEventListener('focusout', settleVisualViewportHeight);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
       viewport.removeEventListener('resize', updateVisualViewportHeight);
       viewport.removeEventListener('scroll', updateVisualViewportHeight);
       window.removeEventListener('resize', updateVisualViewportHeight);
-      window.removeEventListener('focusin', updateVisualViewportHeight);
-      window.removeEventListener('focusout', updateVisualViewportHeight);
+      window.removeEventListener('focusin', settleVisualViewportHeight);
+      window.removeEventListener('focusout', settleVisualViewportHeight);
+      window.removeEventListener('keyup', handleKeyUp);
+      if (settleFrame !== null) cancelAnimationFrame(settleFrame);
+      settleTimers.forEach(clearTimeout);
     };
   }, []);
 
@@ -142,6 +156,7 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
     <Button
       size="sm"
       className="absolute right-3 top-3 z-30 shadow-lg"
+      data-ws-overlay-exclusion="inspector-trigger"
       onClick={() => setMobileOpen(true)}
       aria-label={t('openInspector')}
     >
@@ -174,9 +189,12 @@ export function WorkspaceShell({ main, inspector }: WorkspaceShellProps) {
         >
           <DrawerContent
             className="min-h-0 h-[85dvh] max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-hidden border-[var(--ws-border)] bg-[var(--ws-cream)]"
-            style={keyboardViewportHeight === null
+            style={visualViewportHeight === null
               ? undefined
-              : { height: `min(85dvh, ${keyboardViewportHeight}px)`, maxHeight: `${keyboardViewportHeight}px` }}
+              : {
+                height: `min(85dvh, ${visualViewportHeight}px)`,
+                maxHeight: `min(calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)), ${visualViewportHeight}px)`,
+              }}
           >
             <DrawerHeader className="sr-only">
               <DrawerTitle>{t('groupPanelTitle')}</DrawerTitle>
