@@ -68,6 +68,19 @@ export interface Viewport {
 
 export type AnnotationFontFamily = 'Arial' | 'Times New Roman' | 'Courier New' | 'Microsoft YaHei';
 export type AnnotationTextAnchor = 'start' | 'middle' | 'end';
+export type AnnotationVerticalAlign = 'baseline' | 'super' | 'sub';
+
+export interface AnnotationTextRun {
+  text: string;
+  color?: string;
+  fontFamily?: AnnotationFontFamily;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  verticalAlign?: AnnotationVerticalAlign;
+}
+
+export type AnnotationRunStyle = Omit<AnnotationTextRun, 'text'>;
 
 export interface TextAnnotation {
   id: string;
@@ -79,6 +92,8 @@ export interface TextAnnotation {
   fontWeight: 'normal' | 'bold';
   fontStyle: 'normal' | 'italic';
   textAnchor: AnnotationTextAnchor;
+  /** Optional rich-text runs; omitted on legacy annotations and derived from text. */
+  runs?: AnnotationTextRun[];
 }
 
 export type ZoomAxis = 'x' | 'y' | 'both';
