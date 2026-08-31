@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AxisConfig, AxisCursor } from '../types/waveform.ts';
-import { findAxisCursorHit, layoutCursorLabel, nextCursorLabel, renderSvgCursors, sanitizeAxisCursors, snapCursorValue } from './axisCursor.ts';
+import { cursorValueText, findAxisCursorHit, layoutCursorLabel, nextCursorLabel, renderSvgCursors, sanitizeAxisCursors, snapCursorValue } from './axisCursor.ts';
 
 const config: AxisConfig = { xUnit: 't', yUnit: 'A', xGridSize: 0.5, yGridSize: 0.25, xMajorGridSize: 2, yMajorGridSize: 1 };
 const cursors: AxisCursor[] = [
@@ -22,6 +22,12 @@ test('hits visible cursor lines and snaps on the selected axis', () => {
   assert.equal(snapCursorValue(1.13, 'y', config), 1.25);
 });
 
+test('formats cursor values with exactly three decimal places', () => {
+  assert.equal(cursorValueText(cursors[0], config), 'X1 = 2.000 t');
+  assert.equal(cursorValueText({ id: 'x2', axis: 'x', value: 1.23456, label: 'X2', visible: true }, config), 'X2 = 1.235 t');
+  assert.equal(cursorValueText({ id: 'y2', axis: 'y', value: -0.0004, label: 'Y2', visible: true }, config), 'Y2 = 0.000 A');
+});
+
 test('sanitizes cursor data and renders only in-range visible cursors', () => {
   assert.deepEqual(sanitizeAxisCursors(undefined), []);
   const sanitized = sanitizeAxisCursors([...cursors, { id: 'bad', axis: 'z', value: 1, label: 'bad' }, { id: 'x1', axis: 'x', value: 3, label: 'duplicate' }]);
@@ -33,8 +39,8 @@ test('sanitizes cursor data and renders only in-range visible cursors', () => {
   assert.match(svg, /id="cursors"/);
   assert.match(svg, /stroke-width="1"/);
   assert.match(svg, /stroke-dasharray="6,4"/);
-  assert.match(svg, /X1 = 2 t/);
-  assert.match(svg, /Y1 = 1 A/);
+  assert.match(svg, /X1 = 2.000 t/);
+  assert.match(svg, /Y1 = 1.000 A/);
   assert.doesNotMatch(svg, /Y&lt;2/);
   assert.doesNotMatch(svg, /X9/);
 });

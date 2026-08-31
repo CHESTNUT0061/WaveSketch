@@ -66,6 +66,21 @@ export interface Viewport {
   scaleY: number;
 }
 
+export type AnnotationFontFamily = 'Arial' | 'Times New Roman' | 'Courier New' | 'Microsoft YaHei';
+export type AnnotationTextAnchor = 'start' | 'middle' | 'end';
+
+export interface TextAnnotation {
+  id: string;
+  text: string;
+  position: Point;
+  color: string;
+  fontSize: number; // world units; scales with the drawing
+  fontFamily: AnnotationFontFamily;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  textAnchor: AnnotationTextAnchor;
+}
+
 export type ZoomAxis = 'x' | 'y' | 'both';
 
 // Calculator RPN token: g = waveform group ref, c = constant, op = binary operator
@@ -107,4 +122,4 @@ export interface AxisCursor {
   visible: boolean;
 }
 
-export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';
+export type ToolMode = 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'text' | 'pan';

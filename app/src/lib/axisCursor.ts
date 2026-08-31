@@ -67,7 +67,8 @@ export interface SvgCursorRenderOptions {
 
 export const cursorValueText = (cursor: AxisCursor, config: AxisConfig) => {
   const unit = cursor.axis === 'x' ? config.xUnit : config.yUnit;
-  return `${cursor.label} = ${Number(cursor.value.toFixed(6))}${unit ? ` ${unit}` : ''}`;
+  const roundedValue = Math.abs(cursor.value) < 0.0005 ? 0 : cursor.value;
+  return `${cursor.label} = ${roundedValue.toFixed(3)}${unit ? ` ${unit}` : ''}`;
 };
 
 export interface CursorLabelBounds {
