@@ -14,7 +14,7 @@ All notable changes to WaveSketch are documented in this file.
 ### Changed
 
 - External copy now exports only the selected waveforms and text annotations, with tight content bounds and no grid, axes, legend, or Cursor. Regular copy keeps SVG and PNG representations for compatible destination applications.
-- Cross-application copy now exports only selected waveforms and text. Pasted waveforms are directly editable in PowerPoint, while editing is not currently supported in Visio; grid, axes, legend, and Cursor are excluded.
+- Cross-application copy now exports only selected waveforms and text. Pasted waveforms are directly editable in PowerPoint; Visio does not support editing after copy, so use Export SVG when editing is required. Grid, axes, legend, and Cursor are excluded.
 - Ctrl+V now enters the same paste preview flow for selected text annotations and waveforms; pasted annotations remain independent editable objects.
 - Shift+Enter inserts a new line and moves the caret to it; Enter completes text editing.
 - Cursor display values are limited to three decimal places.

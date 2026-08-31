@@ -173,7 +173,7 @@ const S = {
   pastePreviewMode: { zh: '复制预览模式', en: 'Paste preview' },
   btnCopy: { zh: '复制', en: 'Copy' },
   btnPaste: { zh: '粘贴', en: 'Paste' },
-  tipCopy: { zh: '复制选中的波形和文字；聊天软件优先使用 PNG', en: 'Copy selected waveforms and text; chat apps prefer PNG' },
+  tipCopy: { zh: '复制选中的波形和文字；PowerPoint 可直接编辑，Visio 如需编辑请使用“导出 SVG”', en: 'Copy selected waveforms and text; PowerPoint supports direct editing, while Visio requires “Export SVG” for editing' },
   tipPaste: { zh: '粘贴，副本偏移后可拖动调整位置', en: 'Paste; the copy is offset and can be dragged into place' },
   hintClickConfirm: { zh: '• 点击画布确认复制', en: '• Click the canvas to confirm' },
   hintEnterEsc: { zh: '• Enter 确认 / Esc 取消', en: '• Enter to confirm / Esc to cancel' },
