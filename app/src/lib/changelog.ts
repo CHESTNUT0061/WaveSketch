@@ -9,6 +9,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '1.0.7', date: '2026-08-31',
+    comparison: { zh: '相对于 v1.0.6', en: 'Compared with v1.0.6' },
+    changes: [
+      { zh: '增加可编辑文字标注：支持中英文默认内容、换行、字体、字号、颜色、粗体、斜体、对齐、右键设置和按内容自动调整标注框大小。', en: 'Added editable text annotations with default Chinese and English content, multiline input, font, size, color, bold, italic, alignment, right-click settings, and content-based sizing.' },
+      { zh: '文字标注支持选中、框选、移动、删除、复制粘贴、保存导入，以及在 SVG 中保持可编辑文字。', en: 'Text annotations can be selected, rubber-band selected, moved, deleted, copied, pasted, saved, imported, and preserved as editable SVG text.' },
+      { zh: '增加统一导出图片窗口：可选择网格、坐标轴、图例、Cursor 和 PNG/SVG 格式，并支持大尺寸及点击放大预览。', en: 'Added a unified image export dialog with grid, axes, legend, Cursor, PNG/SVG format options, and large click-to-enlarge previews.' },
+      { zh: '跨应用复制按选中内容导出波形和文字，不包含网格、坐标轴、图例或 Cursor；删除独立的复制 SVG 入口。', en: 'Cross-application copy exports only selected waveforms and text, excluding grid, axes, legend, and Cursor; the separate Copy SVG action was removed.' },
+      { zh: '修复网格值负数问题，最小值保持为 0.001；Cursor 显示数值保留小数点后 3 位。', en: 'Fixed negative grid values; the minimum remains 0.001. Cursor values now display up to three decimal places.' },
+      { zh: '优化手机、Pad 和网页端的浮动控件与面板布局，并增加 Analog Canvas 推荐链接。', en: 'Improved floating controls and panel layouts on phone, Pad, and web, and added the Analog Canvas recommendation link.' },
+    ],
+  },
+  {
     version: '1.0.6', date: '2026-08-21',
     comparison: { zh: '相对于 v1.0.5', en: 'Compared with v1.0.5' },
     changes: [
