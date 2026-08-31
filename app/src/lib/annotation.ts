@@ -1,4 +1,4 @@
-import type { Point, TextAnnotation } from '@/types/waveform';
+import type { AnnotationTextRun, AnnotationVerticalAlign, Point, TextAnnotation } from '@/types/waveform';
 
 export const DEFAULT_ANNOTATION_STYLE: Omit<TextAnnotation, 'id' | 'text' | 'position'> = {
   color: '#111827',
@@ -11,10 +11,32 @@ export const DEFAULT_ANNOTATION_STYLE: Omit<TextAnnotation, 'id' | 'text' | 'pos
 
 const FONT_FAMILIES = new Set(['Arial', 'Times New Roman', 'Courier New', 'Microsoft YaHei']);
 const TEXT_ANCHORS = new Set(['start', 'middle', 'end']);
+const VERTICAL_ALIGNS = new Set(['baseline', 'super', 'sub']);
 
 export const escapeXml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+export function getAnnotationRuns(annotation: TextAnnotation): AnnotationTextRun[] {
+  const runs = annotation.runs?.filter(run => run.text.length > 0);
+  if (runs && runs.length > 0 && runs.map(run => run.text).join('') === annotation.text) return runs;
+  return [{ text: annotation.text, color: annotation.color, verticalAlign: 'baseline' }];
+}
+
+function sanitizeTextRuns(value: unknown, text: string, color: string): AnnotationTextRun[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const runs = value.flatMap((item): AnnotationTextRun[] => {
+    if (!item || typeof item !== 'object') return [];
+    const candidate = item as Partial<AnnotationTextRun>;
+    if (typeof candidate.text !== 'string' || candidate.text.length === 0) return [];
+    return [{
+      text: candidate.text,
+      color: typeof candidate.color === 'string' ? candidate.color : color,
+      verticalAlign: VERTICAL_ALIGNS.has(candidate.verticalAlign ?? '') ? candidate.verticalAlign as AnnotationVerticalAlign : 'baseline',
+    }];
+  });
+  return runs.length > 0 && runs.map(run => run.text).join('') === text ? runs : undefined;
+}
 
 export function estimateAnnotationLineWidth(text: string, fontSize: number) {
   return Array.from(text).reduce((width, character) => {
@@ -30,16 +52,18 @@ export function sanitizeAnnotations(value: unknown): TextAnnotation[] {
     const candidate = item as Partial<TextAnnotation>;
     if (typeof candidate.id !== 'string' || typeof candidate.text !== 'string' ||
         !candidate.position || !Number.isFinite(candidate.position.x) || !Number.isFinite(candidate.position.y)) return [];
+    const color = typeof candidate.color === 'string' ? candidate.color : DEFAULT_ANNOTATION_STYLE.color;
     return [{
       id: candidate.id,
       text: candidate.text,
       position: { x: candidate.position.x, y: candidate.position.y },
-      color: typeof candidate.color === 'string' ? candidate.color : DEFAULT_ANNOTATION_STYLE.color,
+      color,
       fontSize: Number.isFinite(candidate.fontSize) ? Math.max(0.1, candidate.fontSize as number) : DEFAULT_ANNOTATION_STYLE.fontSize,
       fontFamily: FONT_FAMILIES.has(candidate.fontFamily ?? '') ? candidate.fontFamily! : DEFAULT_ANNOTATION_STYLE.fontFamily,
       fontWeight: candidate.fontWeight === 'bold' ? 'bold' : 'normal',
       fontStyle: candidate.fontStyle === 'italic' ? 'italic' : 'normal',
       textAnchor: TEXT_ANCHORS.has(candidate.textAnchor ?? '') ? candidate.textAnchor! : 'start',
+      runs: sanitizeTextRuns((candidate as { runs?: unknown }).runs, candidate.text, color),
     }];
   });
 }
@@ -86,11 +110,30 @@ export function renderSvgAnnotations(
     const lines = annotation.text.split('\n');
     const lineWidths = lines.map(line => estimateAnnotationLineWidth(line, fontPx));
     const maxWidth = Math.max(fontPx, ...lineWidths);
+    const runLines: AnnotationTextRun[][] = [];
+    let currentLine: AnnotationTextRun[] = [];
+    getAnnotationRuns(annotation).forEach(run => {
+      const parts = run.text.split('\n');
+      parts.forEach((part, partIndex) => {
+        if (part.length > 0) currentLine.push({ ...run, text: part });
+        if (partIndex < parts.length - 1) {
+          runLines.push(currentLine);
+          currentLine = [];
+        }
+      });
+    });
+    runLines.push(currentLine);
+    const hasRichRuns = Array.isArray(annotation.runs) && annotation.runs.length > 0;
     const tspans = lines.map((line, lineIndex) => {
       const dy = lineIndex === 0 ? 0 : lineHeight;
       const offset = annotation.textAnchor === 'middle' ? (maxWidth - lineWidths[lineIndex]) / 2
         : annotation.textAnchor === 'end' ? maxWidth - lineWidths[lineIndex] : 0;
-      return `<tspan x="${(point.x + offset).toFixed(2)}" dy="${dy.toFixed(2)}">${escapeXml(line)}</tspan>`;
+      if (!hasRichRuns) return `<tspan x="${(point.x + offset).toFixed(2)}" dy="${dy.toFixed(2)}">${escapeXml(line)}</tspan>`;
+      const children = (runLines[lineIndex] ?? [{ text: line, color: annotation.color, verticalAlign: 'baseline' }]).map(run => {
+        const shift = run.verticalAlign === 'super' || run.verticalAlign === 'sub' ? ` baseline-shift="${run.verticalAlign}" font-size="70%"` : '';
+        return `<tspan fill="${escapeXml(run.color ?? annotation.color)}"${shift}>${escapeXml(run.text)}</tspan>`;
+      }).join('');
+      return `<tspan x="${(point.x + offset).toFixed(2)}" dy="${dy.toFixed(2)}">${children}</tspan>`;
     }).join('');
     svg += `    <text id="annotation-${index + 1}" x="${point.x.toFixed(2)}" y="${point.y.toFixed(2)}" fill="${escapeXml(annotation.color)}" font-family="${escapeXml(annotation.fontFamily)}, sans-serif" font-size="${fontPx.toFixed(2)}" font-weight="${annotation.fontWeight}" font-style="${annotation.fontStyle}" text-anchor="start" data-text-align="${annotation.textAnchor}" xml:space="preserve">${tspans}</text>\n`;
   });

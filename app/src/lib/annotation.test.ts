@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateAnnotationLineWidth, getAnnotationBounds, getAnnotationIdsFullyInsideRect, renderSvgAnnotations, sanitizeAnnotations } from './annotation.ts';
+import { estimateAnnotationLineWidth, getAnnotationBounds, getAnnotationIdsFullyInsideRect, getAnnotationRuns, renderSvgAnnotations, sanitizeAnnotations } from './annotation.ts';
 
 test('annotation sanitizer rejects malformed positions and clamps font size', () => {
   assert.deepEqual(sanitizeAnnotations([{ id: 'bad', text: 'x', position: { x: 'no', y: 0 } }]), []);
@@ -23,6 +23,24 @@ test('multiline annotations use editable SVG tspans and expand bounds', () => {
   assert.match(svg, /dy="0\.00"/);
   assert.match(svg, /dy="4\.80"/);
   assert.ok(getAnnotationBounds(annotation).yMax > annotation.position.y + annotation.fontSize);
+});
+
+test('rich text runs preserve local color and superscript/subscript SVG styling', () => {
+  const [annotation] = sanitizeAnnotations([{
+    id: 'rich',
+    text: 'Vcc2',
+    position: { x: 1, y: 2 },
+    runs: [
+      { text: 'V', color: '#2563eb' },
+      { text: 'cc', color: '#dc2626', verticalAlign: 'sub' },
+      { text: '2', color: '#16a34a', verticalAlign: 'super' },
+    ],
+  }]);
+  assert.equal(getAnnotationRuns(annotation).length, 3);
+  const svg = renderSvgAnnotations([annotation], point => point, 10);
+  assert.match(svg, /fill="#[0-9a-f]+"/);
+  assert.match(svg, /baseline-shift="sub"/);
+  assert.match(svg, /baseline-shift="super"/);
 });
 
 test('text alignment changes line layout without moving the annotation anchor', () => {
