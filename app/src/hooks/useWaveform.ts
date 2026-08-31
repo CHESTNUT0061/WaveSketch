@@ -10,7 +10,7 @@ import { nextCursorLabel, renderSvgCursors, sanitizeAxisCursors } from '@/lib/ax
 import { deleteSegmentsAndEmptyGroups } from '@/lib/waveformDeletion';
 import { calculateArithmeticPoints } from '@/lib/waveformArithmetic';
 import { normalizeAxisConfig } from '@/lib/axisConfig';
-import { DEFAULT_ANNOTATION_STYLE, getAnnotationBounds, getAnnotationIdsFullyInsideRect, renderSvgAnnotations, sanitizeAnnotations } from '@/lib/annotation';
+import { ANNOTATION_CHARACTER_STYLE_KEYS, clearAnnotationRunOverrides, DEFAULT_ANNOTATION_STYLE, getAnnotationBounds, getAnnotationIdsFullyInsideRect, renderSvgAnnotations, sanitizeAnnotations, type AnnotationCharacterStyleKey } from '@/lib/annotation';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -1223,10 +1223,19 @@ export function useWaveform() {
   }, [pushHistoryState, setSelectedAnnotation]);
 
   const updateAnnotation = useCallback((annotationId: string, patch: Partial<Omit<TextAnnotation, 'id'>>, saveHistory = false) => {
-    const nextAnnotations = annotationsRef.current.map(annotation => annotation.id === annotationId
-      ? { ...annotation, ...patch, fontSize: patch.fontSize === undefined ? annotation.fontSize : Math.max(0.1, patch.fontSize) }
-      : annotation
-    );
+    const nextAnnotations = annotationsRef.current.map(annotation => {
+      if (annotation.id !== annotationId) return annotation;
+      let runs = Object.prototype.hasOwnProperty.call(patch, 'runs') ? patch.runs : annotation.runs;
+      if (Object.prototype.hasOwnProperty.call(patch, 'text') && !Object.prototype.hasOwnProperty.call(patch, 'runs') && patch.text !== annotation.text) runs = undefined;
+      const overriddenKeys = ANNOTATION_CHARACTER_STYLE_KEYS.filter(key => key !== 'verticalAlign' && patch[key] !== undefined) as AnnotationCharacterStyleKey[];
+      if (overriddenKeys.length > 0) runs = clearAnnotationRunOverrides(runs, overriddenKeys);
+      return {
+        ...annotation,
+        ...patch,
+        runs,
+        fontSize: patch.fontSize === undefined ? annotation.fontSize : Math.max(0.1, patch.fontSize),
+      };
+    });
     annotationsRef.current = nextAnnotations;
     setAnnotations(nextAnnotations);
     if (saveHistory) {

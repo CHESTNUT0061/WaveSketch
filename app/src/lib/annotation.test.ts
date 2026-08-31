@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateAnnotationLineWidth, getAnnotationBounds, getAnnotationIdsFullyInsideRect, getAnnotationRuns, renderSvgAnnotations, sanitizeAnnotations } from './annotation.ts';
+import { applyAnnotationRunStyle, clearAnnotationRunOverrides, estimateAnnotationLineWidth, getAnnotationBounds, getAnnotationIdsFullyInsideRect, getAnnotationRuns, renderSvgAnnotations, sanitizeAnnotations } from './annotation.ts';
 
 test('annotation sanitizer rejects malformed positions and clamps font size', () => {
   assert.deepEqual(sanitizeAnnotations([{ id: 'bad', text: 'x', position: { x: 'no', y: 0 } }]), []);
@@ -41,6 +41,46 @@ test('rich text runs preserve local color and superscript/subscript SVG styling'
   assert.match(svg, /fill="#[0-9a-f]+"/);
   assert.match(svg, /baseline-shift="sub"/);
   assert.match(svg, /baseline-shift="super"/);
+});
+
+test('selection formatting splits and merges runs while preserving other local properties', () => {
+  const [annotation] = sanitizeAnnotations([{
+    id: 'selection',
+    text: 'abcd',
+    position: { x: 0, y: 0 },
+    runs: [{ text: 'abcd', verticalAlign: 'super' }],
+  }]);
+  const colored = applyAnnotationRunStyle(annotation, 1, 3, { color: '#dc2626', fontFamily: 'Arial', fontSize: 0.8, fontWeight: 'bold', fontStyle: 'italic' });
+  assert.deepEqual(colored, [
+    { text: 'a', verticalAlign: 'super' },
+    { text: 'bc', verticalAlign: 'super', color: '#dc2626', fontFamily: 'Arial', fontSize: 0.8, fontWeight: 'bold', fontStyle: 'italic' },
+    { text: 'd', verticalAlign: 'super' },
+  ]);
+  const recolored = clearAnnotationRunOverrides(colored, ['color']);
+  assert.equal(recolored?.map(run => run.text).join(''), annotation.text);
+  assert.ok(recolored?.every(run => run.verticalAlign === 'super'));
+  assert.equal(recolored?.some(run => run.color !== undefined), false);
+});
+
+test('rich SVG emits all supported character styles and keeps plain text inheritable', () => {
+  const [annotation] = sanitizeAnnotations([{
+    id: 'styles',
+    text: 'AB',
+    position: { x: 0, y: 0 },
+    color: '#111827',
+    runs: [
+      { text: 'A' },
+      { text: 'B', color: '#2563eb', fontFamily: 'Times New Roman', fontSize: 0.7, fontWeight: 'bold', fontStyle: 'italic', verticalAlign: 'sub' },
+    ],
+  }]);
+  const svg = renderSvgAnnotations([annotation], point => point, 10);
+  assert.match(svg, />A<\/tspan>/);
+  assert.match(svg, /fill="#2563eb"/);
+  assert.match(svg, /font-family="Times New Roman, sans-serif"/);
+  assert.match(svg, /font-size="7\.00"/);
+  assert.match(svg, /font-weight="bold"/);
+  assert.match(svg, /font-style="italic"/);
+  assert.match(svg, /baseline-shift="sub"/);
 });
 
 test('text alignment changes line layout without moving the annotation anchor', () => {

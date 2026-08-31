@@ -73,8 +73,14 @@ export type AnnotationVerticalAlign = 'baseline' | 'super' | 'sub';
 export interface AnnotationTextRun {
   text: string;
   color?: string;
+  fontFamily?: AnnotationFontFamily;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
   verticalAlign?: AnnotationVerticalAlign;
 }
+
+export type AnnotationRunStyle = Omit<AnnotationTextRun, 'text'>;
 
 export interface TextAnnotation {
   id: string;
