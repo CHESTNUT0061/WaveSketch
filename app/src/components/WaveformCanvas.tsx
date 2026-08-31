@@ -1,16 +1,20 @@
 import React, { useEffect, useCallback } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, ZoomAxis } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, ZoomAxis, TextAnnotation, ToolMode, Viewport } from '@/types/waveform';
 import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
 import { groupsBottomToTop } from '@/lib/waveformOrder';
 import { cursorValueText, layoutCursorLabel } from '@/lib/axisCursor';
+import { AnnotationOverlay } from '@/components/AnnotationOverlay';
 
 interface WaveformCanvasProps {
   segments: LineSegment[];
   groups: WaveformGroup[];
   cursors: AxisCursor[];
+  annotations: TextAnnotation[];
+  selectedAnnotations: Set<string>;
+  viewport: Viewport;
   selectedSegments: Set<string>;
   axisConfig: AxisConfig;
-  mode: 'draw' | 'edit' | 'delete' | 'moveGroup' | 'select' | 'pan';
+  mode: ToolMode;
   selectedGroup: string | null;
   activeSegment: string | null;
   isDrawing: boolean;
@@ -18,6 +22,7 @@ interface WaveformCanvasProps {
   currentMouse: Point | null;
   draggingControl: string | null;
   copyingSegments?: LineSegment[]; // segments being copied (for preview)
+  copyingAnnotations?: TextAnnotation[];
   copyOffset?: Point; // copy offset
   worldToScreen: (point: Point, canvas: HTMLCanvasElement) => Point;
   screenToWorld: (point: Point, canvas: HTMLCanvasElement) => Point;
@@ -33,12 +38,20 @@ interface WaveformCanvasProps {
   cursorOverride?: React.CSSProperties['cursor'];
   selectionRect?: { start: Point; end: Point } | null; // rubber-band rect in world coords
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  onSelectAnnotation: (id: string, additive: boolean) => void;
+  onMoveAnnotationSelection: (id: string, deltaX: number, deltaY: number) => void;
+  onUpdateAnnotation: (id: string, patch: Partial<Omit<TextAnnotation, 'id'>>, saveHistory?: boolean) => void;
+  onCommitAnnotation: () => void;
+  onDeleteAnnotation: (id: string) => void;
 }
 
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   segments,
   groups,
   cursors,
+  annotations,
+  selectedAnnotations,
+  viewport,
   selectedSegments,
   axisConfig,
   mode,
@@ -48,6 +61,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   drawStart,
   currentMouse,
   copyingSegments = [],
+  copyingAnnotations = [],
   copyOffset = { x: 0, y: 0 },
   worldToScreen,
   screenToWorld,
@@ -63,6 +77,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   cursorOverride,
   selectionRect = null,
   canvasRef,
+  onSelectAnnotation,
+  onMoveAnnotationSelection,
+  onUpdateAnnotation,
+  onCommitAnnotation,
+  onDeleteAnnotation,
 }) => {
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     // All drawing coordinates are CSS pixels (the context is pre-scaled by devicePixelRatio)
@@ -634,6 +653,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     edit: PENCIL_CURSOR,
     delete: TRASH_CURSOR,
     moveGroup: GRAB_CURSOR,
+    text: 'text',
     pan: GRAB_CURSOR,
     select: 'default',
   };
@@ -659,7 +679,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   return (
     <div
       ref={containerRef}
-      className="ws-canvas-interaction h-full w-full touch-none select-none overflow-hidden"
+      className="ws-canvas-interaction relative h-full w-full touch-none select-none overflow-hidden"
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -694,6 +714,22 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         onDragStart={(e) => e.preventDefault()}
         onWheel={handleWheel}
         onScroll={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      />
+      <AnnotationOverlay
+        annotations={annotations}
+        previewAnnotations={copyingAnnotations}
+        previewOffset={copyOffset}
+        selectedAnnotations={selectedAnnotations}
+        mode={mode}
+        canvasRef={canvasRef}
+        viewport={viewport}
+        canvasSize={canvasSize}
+        waveformColors={groups.map(group => ({ name: group.name, color: group.color }))}
+        onSelect={onSelectAnnotation}
+        onMoveSelection={onMoveAnnotationSelection}
+        onUpdate={onUpdateAnnotation}
+        onCommit={onCommitAnnotation}
+        onDelete={onDeleteAnnotation}
       />
     </div>
   );

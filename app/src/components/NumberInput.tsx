@@ -12,7 +12,11 @@ interface NumberInputProps extends Omit<React.ComponentProps<typeof Input>, 'val
   max?: number;
   integer?: boolean;
   showSteppers?: boolean;
+  displayPrecision?: number;
 }
+
+const formatNumber = (value: number, displayPrecision?: number) =>
+  displayPrecision === undefined ? String(value) : value.toFixed(displayPrecision);
 
 // Number field that buffers the raw text while typing, so intermediate states
 // like "", "0", "0.", "-" are allowed (the old parseFloat(x) || fallback pattern
@@ -26,10 +30,11 @@ export const NumberInput: React.FC<NumberInputProps> = ({
   max,
   integer = false,
   showSteppers = false,
+  displayPrecision,
   ...rest
 }) => {
   const { t } = useI18n();
-  const [text, setText] = useState(String(value));
+  const [text, setText] = useState(formatNumber(value, displayPrecision));
   const lastEmitted = useRef(value);
   const step = typeof rest.step === 'number' ? rest.step : Number(rest.step ?? 1);
 
@@ -38,9 +43,9 @@ export const NumberInput: React.FC<NumberInputProps> = ({
   useEffect(() => {
     if (value !== lastEmitted.current) {
       lastEmitted.current = value;
-      setText(String(value));
+      setText(formatNumber(value, displayPrecision));
     }
-  }, [value]);
+  }, [value, displayPrecision]);
 
   const clamp = (v: number) => {
     if (min !== undefined && v < min) v = min;
@@ -51,6 +56,16 @@ export const NumberInput: React.FC<NumberInputProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
+    // Native number inputs allow a transient leading minus even with min=0.
+    // Reject it immediately for non-negative fields so invalid grid values are
+    // never displayed or propagated.
+    if (min !== undefined && min >= 0 && raw.trimStart().startsWith('-')) {
+      const next = clamp(min);
+      setText(formatNumber(next, displayPrecision));
+      lastEmitted.current = next;
+      onValueChange(next);
+      return;
+    }
     setText(raw);
     const parsed = parseFloat(raw);
     // Emit only complete, in-range numbers; partial input just stays in the buffer
@@ -66,11 +81,11 @@ export const NumberInput: React.FC<NumberInputProps> = ({
       const v = clamp(parsed);
       lastEmitted.current = v;
       onValueChange(v);
-      setText(String(v));
+      setText(formatNumber(v, displayPrecision));
       onValueCommit?.(v);
     } else {
       // Unparseable leftover ("", "-", "."): restore the last valid value
-      setText(String(lastEmitted.current));
+      setText(formatNumber(lastEmitted.current, displayPrecision));
       onValueCommit?.(lastEmitted.current);
     }
   };
@@ -84,7 +99,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
     );
     const next = clamp(Number((current + direction * increment).toFixed(precision)));
     lastEmitted.current = next;
-    setText(String(next));
+    setText(formatNumber(next, displayPrecision));
     onValueChange(next);
     onValueCommit?.(next);
   };

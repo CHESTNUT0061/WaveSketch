@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, Viewport, CalcRpnToken, LogicRpnToken, ToolMode, ParametricSine } from '@/types/waveform';
+import type { Point, LineSegment, WaveformGroup, AxisConfig, AxisCursor, Viewport, CalcRpnToken, LogicRpnToken, ToolMode, ParametricSine, TextAnnotation } from '@/types/waveform';
 import { DEFAULT_LINE_WIDTH, LINE_DASH } from '@/types/waveform';
 import type { DcdcTemplate, DcdcTemplateParams } from '@/components/WaveformGenerator';
 import { buildWaveformPoints, type GenerateParams, type WaveformType } from '@/lib/waveformGeneration';
@@ -9,6 +9,8 @@ import { groupsBottomToTop, reorderGroupList } from '@/lib/waveformOrder';
 import { nextCursorLabel, renderSvgCursors, sanitizeAxisCursors } from '@/lib/axisCursor';
 import { deleteSegmentsAndEmptyGroups } from '@/lib/waveformDeletion';
 import { calculateArithmeticPoints } from '@/lib/waveformArithmetic';
+import { normalizeAxisConfig } from '@/lib/axisConfig';
+import { DEFAULT_ANNOTATION_STYLE, getAnnotationBounds, getAnnotationIdsFullyInsideRect, renderSvgAnnotations, sanitizeAnnotations } from '@/lib/annotation';
 
 const generateId = () => Math.random().toString(36).slice(2, 11);
 
@@ -21,28 +23,7 @@ const DEFAULT_VIEWPORT: Viewport = { centerX: 0, centerY: 0, scaleX: BASE_SCALE,
 
 const clampScale = (v: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, v));
 
-const DEFAULT_AXIS_CONFIG: AxisConfig = {
-  xUnit: 'us',
-  yUnit: 'A',
-  xGridSize: 0.5,      // minor grid (snap unit)
-  yGridSize: 0.5,
-  xMajorGridSize: 2,   // major grid (numbered)
-  yMajorGridSize: 2,
-};
-
-export const MIN_GRID_SIZE = 0.001;
-
-const normalizeGridSize = (value: number | undefined, fallback: number) =>
-  Number.isFinite(value) ? Math.max(MIN_GRID_SIZE, value as number) : fallback;
-
-const normalizeAxisConfig = (config?: Partial<AxisConfig>): AxisConfig => ({
-  xUnit: config?.xUnit ?? DEFAULT_AXIS_CONFIG.xUnit,
-  yUnit: config?.yUnit ?? DEFAULT_AXIS_CONFIG.yUnit,
-  xGridSize: normalizeGridSize(config?.xGridSize, DEFAULT_AXIS_CONFIG.xGridSize),
-  yGridSize: normalizeGridSize(config?.yGridSize, DEFAULT_AXIS_CONFIG.yGridSize),
-  xMajorGridSize: normalizeGridSize(config?.xMajorGridSize, DEFAULT_AXIS_CONFIG.xMajorGridSize),
-  yMajorGridSize: normalizeGridSize(config?.yMajorGridSize, DEFAULT_AXIS_CONFIG.yMajorGridSize),
-});
+export { MIN_GRID_SIZE } from '@/lib/axisConfig';
 
 // Escape XML text (group names / unit labels may contain special chars)
 const escapeXml = (s: string) =>
@@ -57,6 +38,7 @@ interface Draft {
   segments: LineSegment[];
   groups: WaveformGroup[];
   cursors?: AxisCursor[];
+  annotations?: TextAnnotation[];
   axisConfig?: Partial<AxisConfig>;
   viewport?: Partial<Viewport> & { scale?: number }; // `scale` = legacy uniform-zoom field
 }
@@ -95,11 +77,29 @@ interface HistoryState {
   segments: LineSegment[];
   groups: WaveformGroup[];
   cursors: AxisCursor[];
+  annotations: TextAnnotation[];
 }
 
+type HistoryInput = Omit<HistoryState, 'annotations'> & { annotations?: TextAnnotation[] };
+
 interface SvgBuildOptions {
+  includeBackground?: boolean;
+  alignBoundsToGrid?: boolean;
+  contentPadding?: number;
+  includeGrid?: boolean;
+  includeAxes?: boolean;
   includeLegend?: boolean;
   includeCursors?: boolean;
+  includeAnnotations?: boolean;
+  selectionOnly?: boolean;
+}
+
+export interface ImageExportOptions {
+  format: 'png' | 'svg';
+  includeGrid: boolean;
+  includeAxes: boolean;
+  includeLegend: boolean;
+  includeCursors: boolean;
 }
 
 function sampleParametricSine(sine: ParametricSine, samplesPerPeriod = 80): Point[] {
@@ -286,6 +286,20 @@ export function useWaveform() {
   const [segments, setSegments] = useState<LineSegment[]>(draft?.segments ?? []);
   const [groups, setGroups] = useState<WaveformGroup[]>(draft?.groups ?? []);
   const [cursors, setCursors] = useState<AxisCursor[]>(() => sanitizeAxisCursors(draft?.cursors));
+  const [annotations, setAnnotations] = useState<TextAnnotation[]>(() => sanitizeAnnotations(draft?.annotations));
+  const [selectedAnnotation, setSelectedAnnotationState] = useState<string | null>(null);
+  const [selectedAnnotations, setSelectedAnnotations] = useState<Set<string>>(new Set());
+  const setSelectedAnnotation = useCallback((annotationId: string | null) => {
+    setSelectedAnnotationState(annotationId);
+    setSelectedAnnotations(annotationId ? new Set([annotationId]) : new Set());
+  }, []);
+  const selectAnnotation = useCallback((annotationId: string, additive: boolean) => {
+    const next = additive ? new Set(selectedAnnotations) : new Set<string>();
+    if (additive && next.has(annotationId)) next.delete(annotationId);
+    else next.add(annotationId);
+    setSelectedAnnotations(next);
+    setSelectedAnnotationState(next.has(annotationId) ? annotationId : [...next].at(-1) ?? null);
+  }, [selectedAnnotations]);
   const [includeCursorsInExport, setIncludeCursorsInExport] = useState(() => {
     try { return localStorage.getItem(CURSOR_EXPORT_KEY) !== 'false'; } catch { return true; }
   });
@@ -295,6 +309,7 @@ export function useWaveform() {
     segments: draft?.segments ?? [],
     groups: draft?.groups ?? [],
     cursors: sanitizeAxisCursors(draft?.cursors),
+    annotations: sanitizeAnnotations(draft?.annotations),
   }]);
   const historyIndexRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState(false);
@@ -304,13 +319,15 @@ export function useWaveform() {
   const segmentsRef = useRef<LineSegment[]>([]);
   const groupsRef = useRef<WaveformGroup[]>([]);
   const cursorsRef = useRef<AxisCursor[]>([]);
+  const annotationsRef = useRef<TextAnnotation[]>([]);
   
   // Keep refs in sync with state without mutating refs during render.
   useEffect(() => {
     segmentsRef.current = segments;
     groupsRef.current = groups;
     cursorsRef.current = cursors;
-  }, [segments, groups, cursors]);
+    annotationsRef.current = annotations;
+  }, [segments, groups, cursors, annotations]);
   
   // Update undo/redo availability
   const updateHistoryState = useCallback(() => {
@@ -318,7 +335,10 @@ export function useWaveform() {
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
   }, []);
   
-  const [axisConfig, setAxisConfig] = useState<AxisConfig>(() => normalizeAxisConfig(draft?.axisConfig));
+  const [axisConfig, setAxisConfigState] = useState<AxisConfig>(() => normalizeAxisConfig(draft?.axisConfig));
+  const setAxisConfig = useCallback((config: AxisConfig) => {
+    setAxisConfigState(normalizeAxisConfig(config));
+  }, []);
   // Infinite-canvas viewport (pan center + per-axis scale)
   const [viewport, setViewport] = useState<Viewport>(() => normalizeViewport(draft?.viewport));
 
@@ -326,13 +346,13 @@ export function useWaveform() {
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, cursors, axisConfig, viewport }));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments, groups, cursors, annotations, axisConfig, viewport }));
       } catch {
         // Fail silently if storage is full or disabled
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [segments, groups, cursors, axisConfig, viewport]);
+  }, [segments, groups, cursors, annotations, axisConfig, viewport]);
   useEffect(() => {
     try { localStorage.setItem(CURSOR_EXPORT_KEY, String(includeCursorsInExport)); } catch { /* ignore */ }
   }, [includeCursorsInExport]);
@@ -350,6 +370,7 @@ export function useWaveform() {
 
   // Copy-mode state
   const [copyingSegments, setCopyingSegments] = useState<LineSegment[]>([]); // segments being dragged as a copy
+  const [copyingAnnotations, setCopyingAnnotations] = useState<TextAnnotation[]>([]);
   const [copyOffset, setCopyOffset] = useState<Point>({ x: 0, y: 0 }); // copy offset
   const [isDraggingSelected, setIsDraggingSelected] = useState(false); // whether the selection is being dragged
   const [dragStartPoint, setDragStartPoint] = useState<Point | null>(null); // drag start point
@@ -359,9 +380,13 @@ export function useWaveform() {
   const [copyPreviewOffset, setCopyPreviewOffset] = useState<Point>({ x: 0, y: 0 }); // paste preview offset
   const [copyPreviewOrigin, setCopyPreviewOrigin] = useState<Point | null>(null); // paste preview reference origin
   const [clipboardSegments, setClipboardSegments] = useState<LineSegment[]>([]); // clipboard segments (Ctrl+C)
+  const [clipboardAnnotations, setClipboardAnnotations] = useState<TextAnnotation[]>([]);
 
-  const pushHistoryState = useCallback((state: HistoryState) => {
-    const newState: HistoryState = JSON.parse(JSON.stringify(state));
+  const pushHistoryState = useCallback((state: HistoryInput) => {
+    const newState: HistoryState = JSON.parse(JSON.stringify({
+      ...state,
+      annotations: state.annotations ?? annotationsRef.current,
+    }));
     // Drop any redo entries beyond the current index
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
     newHistory.push(newState);
@@ -382,6 +407,7 @@ export function useWaveform() {
       segments: segmentsRef.current,
       groups: groupsRef.current,
       cursors: cursorsRef.current,
+      annotations: annotationsRef.current,
     });
   }, [pushHistoryState]);
 
@@ -393,12 +419,15 @@ export function useWaveform() {
       segmentsRef.current = JSON.parse(JSON.stringify(prevState.segments));
       groupsRef.current = JSON.parse(JSON.stringify(prevState.groups));
       cursorsRef.current = JSON.parse(JSON.stringify(prevState.cursors));
+      annotationsRef.current = JSON.parse(JSON.stringify(prevState.annotations));
       setSegments(segmentsRef.current);
       setGroups(groupsRef.current);
       setCursors(cursorsRef.current);
+      setAnnotations(annotationsRef.current);
+      setSelectedAnnotation(null);
       updateHistoryState();
     }
-  }, [updateHistoryState]);
+  }, [setSelectedAnnotation, updateHistoryState]);
 
   // Redo
   const redo = useCallback(() => {
@@ -408,12 +437,15 @@ export function useWaveform() {
       segmentsRef.current = JSON.parse(JSON.stringify(nextState.segments));
       groupsRef.current = JSON.parse(JSON.stringify(nextState.groups));
       cursorsRef.current = JSON.parse(JSON.stringify(nextState.cursors));
+      annotationsRef.current = JSON.parse(JSON.stringify(nextState.annotations));
       setSegments(segmentsRef.current);
       setGroups(groupsRef.current);
       setCursors(cursorsRef.current);
+      setAnnotations(annotationsRef.current);
+      setSelectedAnnotation(null);
       updateHistoryState();
     }
-  }, [updateHistoryState]);
+  }, [setSelectedAnnotation, updateHistoryState]);
 
   // World -> screen (CSS pixels), centered on the viewport.
   // Uses clientWidth/Height because the canvas backing store is scaled by devicePixelRatio.
@@ -920,7 +952,20 @@ export function useWaveform() {
       ids.forEach(id => next.add(id));
       return next;
     });
-  }, [segments, groups]);
+
+    const annotationIds = annotations
+      .filter(annotation => {
+        const bounds = getAnnotationBounds(annotation);
+        return bounds.xMin >= xLo && bounds.xMax <= xHi && bounds.yMin >= yLo && bounds.yMax <= yHi;
+      })
+      .map(annotation => annotation.id);
+    setSelectedAnnotations(previous => {
+      const next = additive ? new Set(previous) : new Set<string>();
+      annotationIds.forEach(id => next.add(id));
+      setSelectedAnnotationState(annotationIds.at(-1) ?? (additive ? selectedAnnotation : null));
+      return next;
+    });
+  }, [segments, groups, annotations, selectedAnnotation]);
 
   // Delete all selected segments (Delete/Backspace)
   const deleteSelectedSegments = useCallback(() => {
@@ -928,7 +973,8 @@ export function useWaveform() {
     applySegmentDeletion(selectedSegments);
   }, [selectedSegments, applySegmentDeletion]);
 
-  // Delete every fully-contained segment in a rubber-band rectangle.
+  // Delete every fully-contained visible segment and text annotation in a
+  // Delete-mode rubber-band rectangle as one undoable operation.
   const deleteSegmentsInRect = useCallback((corner1: Point, corner2: Point) => {
     const xLo = Math.min(corner1.x, corner2.x);
     const xHi = Math.max(corner1.x, corner2.x);
@@ -941,8 +987,29 @@ export function useWaveform() {
         return (!group || group.visible) && inRect(segment.start) && inRect(segment.end);
       })
       .map(segment => segment.id));
-    applySegmentDeletion(ids);
-  }, [applySegmentDeletion]);
+    const annotationIds = new Set(getAnnotationIdsFullyInsideRect(annotationsRef.current, corner1, corner2));
+    if (ids.size === 0 && annotationIds.size === 0) return;
+
+    const deletion = deleteSegmentsAndEmptyGroups(segmentsRef.current, groupsRef.current, ids);
+    const nextAnnotations = annotationsRef.current.filter(annotation => !annotationIds.has(annotation.id));
+    segmentsRef.current = deletion.segments;
+    groupsRef.current = deletion.groups;
+    annotationsRef.current = nextAnnotations;
+    setSegments(deletion.segments);
+    setGroups(deletion.groups);
+    setAnnotations(nextAnnotations);
+    if (selectedGroup && deletion.removedGroupIds.includes(selectedGroup)) setSelectedGroup(null);
+    setSelectedSegments(previous => new Set([...previous].filter(id => !ids.has(id))));
+    setSelectedAnnotations(previous => new Set([...previous].filter(id => !annotationIds.has(id))));
+    setSelectedAnnotationState(previous => previous && annotationIds.has(previous) ? null : previous);
+    setActiveSegment(previous => previous && ids.has(previous) ? null : previous);
+    pushHistoryState({
+      segments: deletion.segments,
+      groups: deletion.groups,
+      cursors: cursorsRef.current,
+      annotations: nextAnnotations,
+    });
+  }, [pushHistoryState, selectedGroup]);
 
   // Move the selected segments by a delta (move, not copy)
   const moveSelectedSegments = useCallback((deltaX: number, deltaY: number) => {
@@ -965,6 +1032,16 @@ export function useWaveform() {
     }));
   }, [selectedSegments, axisConfig.xGridSize, axisConfig.yGridSize]);
 
+  const moveSelectedAnnotations = useCallback((annotationId: string, deltaX: number, deltaY: number) => {
+    const targetIds = selectedAnnotations.has(annotationId) ? selectedAnnotations : new Set([annotationId]);
+    const nextAnnotations = annotationsRef.current.map(annotation => targetIds.has(annotation.id)
+      ? { ...annotation, position: { x: annotation.position.x + deltaX, y: annotation.position.y + deltaY } }
+      : annotation
+    );
+    annotationsRef.current = nextAnnotations;
+    setAnnotations(nextAnnotations);
+  }, [selectedAnnotations]);
+
   // Finish moving the selection (saves history)
   const finishMoveSelectedSegments = useCallback(() => {
     if (selectedSegments.size > 0) {
@@ -974,19 +1051,18 @@ export function useWaveform() {
     setDragStartPoint(null);
   }, [selectedSegments.size, saveToHistory]);
 
-  // Ctrl+C: copy the selected segments to the clipboard
+  // Ctrl+C: copy the selected waveforms and annotations to the internal clipboard.
   const copyToClipboard = useCallback(() => {
-    if (selectedSegments.size === 0) return;
-    
     const segmentsToCopy = segments.filter(s => selectedSegments.has(s.id));
-    if (segmentsToCopy.length === 0) return;
-    
+    const annotationsToCopy = annotations.filter(annotation => selectedAnnotations.has(annotation.id));
+    if (segmentsToCopy.length === 0 && annotationsToCopy.length === 0) return;
     setClipboardSegments(segmentsToCopy);
-  }, [selectedSegments, segments]);
+    setClipboardAnnotations(annotationsToCopy);
+  }, [selectedSegments, selectedAnnotations, segments, annotations]);
 
   // Ctrl+V: enter paste preview from the clipboard
   const enterCopyPreview = useCallback((originPoint: Point) => {
-    if (clipboardSegments.length === 0) return;
+    if (clipboardSegments.length === 0 && clipboardAnnotations.length === 0) return;
     
     // Create temporary segments for the preview
     const tempSegments: LineSegment[] = clipboardSegments.map(segment => ({
@@ -995,12 +1071,16 @@ export function useWaveform() {
     }));
     
     setCopyingSegments(tempSegments);
+    setCopyingAnnotations(clipboardAnnotations.map(annotation => ({
+      ...annotation,
+      id: `preview-${annotation.id}`,
+    })));
     // Initial offset 0: the preview draws at the original spot (red dashes distinguish it)
     setCopyPreviewOffset({ x: 0, y: 0 });
     setCopyOffset({ x: 0, y: 0 });
     setCopyPreviewOrigin(originPoint);
     setIsCopyPreview(true);
-  }, [clipboardSegments]);
+  }, [clipboardSegments, clipboardAnnotations]);
 
   // Update the paste preview offset
   const updateCopyPreviewOffset = useCallback((mousePos: Point) => {
@@ -1020,11 +1100,9 @@ export function useWaveform() {
   // Confirm the paste preview - materialize the preview segments.
   // When a group is selected, the copies are pasted into that group.
   const confirmCopyPreview = useCallback(() => {
-    if (copyingSegments.length === 0) return;
+    if (copyingSegments.length === 0 && copyingAnnotations.length === 0) return;
 
-    const newSegmentIds: string[] = [];
-
-    copyingSegments.forEach(segment => {
+    const newSegments = copyingSegments.map(segment => {
       const targetGroupId = selectedGroup ?? segment.groupId;
       const newSegment: LineSegment = {
         id: generateId(),
@@ -1036,42 +1114,58 @@ export function useWaveform() {
       if (segment.control) {
         newSegment.control = { x: segment.control.x + copyPreviewOffset.x, y: segment.control.y + copyPreviewOffset.y };
       }
-
-      setSegments(prev => [...prev, newSegment]);
-      newSegmentIds.push(newSegment.id);
-
-      // Update the group's segment list
-      setGroups(prev => prev.map(g =>
-        g.id === targetGroupId
-          ? { ...g, segments: [...g.segments, newSegment.id] }
-          : g
-      ));
+      return newSegment;
     });
+    const nextSegments = [...segmentsRef.current, ...newSegments];
+    const nextGroups = groupsRef.current.map(group => {
+      const ids = newSegments.filter(segment => segment.groupId === group.id).map(segment => segment.id);
+      return ids.length ? { ...group, segments: [...group.segments, ...ids] } : group;
+    });
+    const newAnnotations = copyingAnnotations.map(annotation => ({
+      ...annotation,
+      id: generateId(),
+      position: {
+        x: annotation.position.x + copyPreviewOffset.x,
+        y: annotation.position.y + copyPreviewOffset.y,
+      },
+    }));
+    const nextAnnotations = [...annotationsRef.current, ...newAnnotations];
+
+    segmentsRef.current = nextSegments;
+    groupsRef.current = nextGroups;
+    annotationsRef.current = nextAnnotations;
+    setSegments(nextSegments);
+    setGroups(nextGroups);
+    setAnnotations(nextAnnotations);
     
     // Clear the paste preview state
     setIsCopyPreview(false);
     setCopyingSegments([]);
+    setCopyingAnnotations([]);
     setCopyPreviewOffset({ x: 0, y: 0 });
     setCopyOffset({ x: 0, y: 0 });
     setCopyPreviewOrigin(null);
-    setSelectedSegments(new Set());
-    setTimeout(saveToHistory, 0);
-  }, [copyingSegments, copyPreviewOffset, selectedGroup, saveToHistory]);
+    setSelectedSegments(new Set(newSegments.map(segment => segment.id)));
+    setSelectedAnnotations(new Set(newAnnotations.map(annotation => annotation.id)));
+    setSelectedAnnotationState(newAnnotations.at(-1)?.id ?? null);
+    pushHistoryState({ segments: nextSegments, groups: nextGroups, cursors: cursorsRef.current, annotations: nextAnnotations });
+  }, [copyingSegments, copyingAnnotations, copyPreviewOffset, selectedGroup, pushHistoryState]);
 
   // Cancel the paste preview
   const cancelCopyPreview = useCallback(() => {
     setIsCopyPreview(false);
     setCopyingSegments([]);
+    setCopyingAnnotations([]);
     setCopyPreviewOffset({ x: 0, y: 0 });
     setCopyOffset({ x: 0, y: 0 });
     setCopyPreviewOrigin(null);
   }, []);
 
-  // Direct paste for touch devices (no keyboard): drop the clipboard segments
+  // Direct paste for touch devices (no keyboard): drop clipboard content
   // offset by two grid cells and select them, so the user can finger-drag to reposition.
   // When a group is selected, the copies are pasted into that group.
   const pasteClipboard = useCallback(() => {
-    if (clipboardSegments.length === 0) return;
+    if (clipboardSegments.length === 0 && clipboardAnnotations.length === 0) return;
     const dx = axisConfig.xGridSize * 2;
     const dy = axisConfig.yGridSize * 2;
 
@@ -1084,44 +1178,154 @@ export function useWaveform() {
       ...(seg.control ? { control: { x: seg.control.x + dx, y: seg.control.y + dy } } : {}),
     }));
 
-    setSegments(prev => [...prev, ...newSegs]);
-    setGroups(prev => prev.map(g => {
+    const nextSegments = [...segmentsRef.current, ...newSegs];
+    const nextGroups = groupsRef.current.map(g => {
       const ids = newSegs.filter(s => s.groupId === g.id).map(s => s.id);
       return ids.length ? { ...g, segments: [...g.segments, ...ids] } : g;
+    });
+    const newAnnotations = clipboardAnnotations.map(annotation => ({
+      ...annotation,
+      id: generateId(),
+      position: { x: annotation.position.x + dx, y: annotation.position.y + dy },
     }));
-    // Select the pasted copies so they can be dragged into place
+    const nextAnnotations = [...annotationsRef.current, ...newAnnotations];
+
+    segmentsRef.current = nextSegments;
+    groupsRef.current = nextGroups;
+    annotationsRef.current = nextAnnotations;
+    setSegments(nextSegments);
+    setGroups(nextGroups);
+    setAnnotations(nextAnnotations);
     setSelectedSegments(new Set(newSegs.map(s => s.id)));
-    setTimeout(saveToHistory, 0);
-  }, [clipboardSegments, axisConfig.xGridSize, axisConfig.yGridSize, selectedGroup, saveToHistory]);
+    setSelectedAnnotations(new Set(newAnnotations.map(annotation => annotation.id)));
+    setSelectedAnnotationState(newAnnotations.at(-1)?.id ?? null);
+    pushHistoryState({ segments: nextSegments, groups: nextGroups, cursors: cursorsRef.current, annotations: nextAnnotations });
+  }, [clipboardSegments, clipboardAnnotations, axisConfig.xGridSize, axisConfig.yGridSize, selectedGroup, pushHistoryState]);
+
+  const createAnnotation = useCallback((position: Point, initialText: string) => {
+    const annotation: TextAnnotation = {
+      id: generateId(),
+      text: initialText,
+      position,
+      ...DEFAULT_ANNOTATION_STYLE,
+    };
+    const nextAnnotations = [...annotationsRef.current, annotation];
+    annotationsRef.current = nextAnnotations;
+    setAnnotations(nextAnnotations);
+    setSelectedAnnotation(annotation.id);
+    pushHistoryState({
+      segments: segmentsRef.current,
+      groups: groupsRef.current,
+      cursors: cursorsRef.current,
+      annotations: nextAnnotations,
+    });
+    return annotation.id;
+  }, [pushHistoryState, setSelectedAnnotation]);
+
+  const updateAnnotation = useCallback((annotationId: string, patch: Partial<Omit<TextAnnotation, 'id'>>, saveHistory = false) => {
+    const nextAnnotations = annotationsRef.current.map(annotation => annotation.id === annotationId
+      ? { ...annotation, ...patch, fontSize: patch.fontSize === undefined ? annotation.fontSize : Math.max(0.1, patch.fontSize) }
+      : annotation
+    );
+    annotationsRef.current = nextAnnotations;
+    setAnnotations(nextAnnotations);
+    if (saveHistory) {
+      pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: cursorsRef.current, annotations: nextAnnotations });
+    }
+  }, [pushHistoryState]);
+
+  const commitAnnotationChange = useCallback(() => {
+    pushHistoryState({
+      segments: segmentsRef.current,
+      groups: groupsRef.current,
+      cursors: cursorsRef.current,
+      annotations: annotationsRef.current,
+    });
+  }, [pushHistoryState]);
+
+  const deleteAnnotation = useCallback((annotationId: string) => {
+    const nextAnnotations = annotationsRef.current.filter(annotation => annotation.id !== annotationId);
+    if (nextAnnotations.length === annotationsRef.current.length) return;
+    annotationsRef.current = nextAnnotations;
+    setAnnotations(nextAnnotations);
+    setSelectedAnnotations(previous => new Set([...previous].filter(id => id !== annotationId)));
+    setSelectedAnnotationState(current => current === annotationId ? null : current);
+    pushHistoryState({ segments: segmentsRef.current, groups: groupsRef.current, cursors: cursorsRef.current, annotations: nextAnnotations });
+  }, [pushHistoryState]);
+
+  const deleteSelectedContent = useCallback(() => {
+    if (selectedSegments.size === 0 && selectedAnnotations.size === 0) return;
+    const deletion = deleteSegmentsAndEmptyGroups(segmentsRef.current, groupsRef.current, selectedSegments);
+    const nextAnnotations = annotationsRef.current.filter(annotation => !selectedAnnotations.has(annotation.id));
+    segmentsRef.current = deletion.segments;
+    groupsRef.current = deletion.groups;
+    annotationsRef.current = nextAnnotations;
+    setSegments(deletion.segments);
+    setGroups(deletion.groups);
+    setAnnotations(nextAnnotations);
+    setSelectedSegments(new Set());
+    setSelectedAnnotations(new Set());
+    setSelectedAnnotationState(null);
+    setActiveSegment(null);
+    if (selectedGroup && deletion.removedGroupIds.includes(selectedGroup)) setSelectedGroup(null);
+    pushHistoryState({
+      segments: deletion.segments,
+      groups: deletion.groups,
+      cursors: cursorsRef.current,
+      annotations: nextAnnotations,
+    });
+  }, [pushHistoryState, selectedAnnotations, selectedGroup, selectedSegments]);
 
   // Clear all
   const clearAll = useCallback(() => {
     segmentsRef.current = [];
     groupsRef.current = [];
     cursorsRef.current = [];
+    annotationsRef.current = [];
     setSegments([]);
     setGroups([]);
     setCursors([]);
+    setAnnotations([]);
+    setSelectedAnnotation(null);
     setSelectedGroup(null);
     setActiveSegment(null);
     setSelectedSegments(new Set());
-    pushHistoryState({ segments: [], groups: [], cursors: [] });
-  }, [pushHistoryState]);
+    pushHistoryState({ segments: [], groups: [], cursors: [], annotations: [] });
+  }, [pushHistoryState, setSelectedAnnotation]);
 
   // Build the export SVG (bounds auto-fit the visible waveforms, aligned outward to the major grid)
   const buildSVG = useCallback((options: SvgBuildOptions = {}): { svg: string; width: number; height: number } => {
-    const { includeLegend = false, includeCursors = false } = options;
-    const padding = 60;
+    const {
+      includeBackground = true,
+      alignBoundsToGrid = true,
+      contentPadding = 60,
+      includeGrid = true,
+      includeAxes = true,
+      includeLegend = false,
+      includeCursors = false,
+      includeAnnotations = true,
+      selectionOnly = false,
+    } = options;
+    const padding = contentPadding;
+    const exportSegments = selectionOnly
+      ? segments.filter(segment => selectedSegments.has(segment.id))
+      : segments;
+    const exportGroups = selectionOnly
+      ? groups.filter(group => exportSegments.some(segment => segment.groupId === group.id))
+      : groups;
+    const exportAnnotations = includeAnnotations
+      ? (selectionOnly ? annotations.filter(annotation => selectedAnnotations.has(annotation.id)) : annotations)
+      : [];
 
-    // Bounding box of the visible segments and parametric waveforms
-    const visibleSegments = segments.filter(s => {
-      const g = groups.find(g => g.id === s.groupId);
+    // Bounding box of visible waveforms and world-anchored text annotations
+    const visibleSegments = exportSegments.filter(s => {
+      const g = exportGroups.find(g => g.id === s.groupId);
       return !g || g.visible;
     });
-    const visibleParametric = groups.filter(group => group.visible && group.parametric?.kind === 'sine');
+    const visibleParametric = selectionOnly ? [] : exportGroups.filter(group => group.visible && group.parametric?.kind === 'sine');
 
     let xMin = -10, xMax = 10, yMin = -5, yMax = 5; // default range when there are no waveforms
-    if (visibleSegments.length > 0 || visibleParametric.length > 0) {
+    if (visibleSegments.length > 0 || visibleParametric.length > 0 || exportAnnotations.length > 0) {
       xMin = Infinity; xMax = -Infinity; yMin = Infinity; yMax = -Infinity;
       visibleSegments.forEach(s => {
         const pts = s.control ? [s.start, s.end, s.control] : [s.start, s.end];
@@ -1137,11 +1341,31 @@ export function useWaveform() {
         yMin = Math.min(yMin, sine.offset - Math.abs(sine.amplitude));
         yMax = Math.max(yMax, sine.offset + Math.abs(sine.amplitude));
       });
-      // Align outward to the major grid with one extra cell of padding
-      xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
-      xMax = (Math.ceil(xMax / axisConfig.xMajorGridSize) + 1) * axisConfig.xMajorGridSize;
-      yMin = (Math.floor(yMin / axisConfig.yMajorGridSize) - 1) * axisConfig.yMajorGridSize;
-      yMax = (Math.ceil(yMax / axisConfig.yMajorGridSize) + 1) * axisConfig.yMajorGridSize;
+      exportAnnotations.forEach(annotation => {
+        const bounds = getAnnotationBounds(annotation);
+        xMin = Math.min(xMin, bounds.xMin); xMax = Math.max(xMax, bounds.xMax);
+        yMin = Math.min(yMin, bounds.yMin); yMax = Math.max(yMax, bounds.yMax);
+      });
+      if (alignBoundsToGrid) {
+        // Full image export keeps the existing grid-aligned framing.
+        xMin = (Math.floor(xMin / axisConfig.xMajorGridSize) - 1) * axisConfig.xMajorGridSize;
+        xMax = (Math.ceil(xMax / axisConfig.xMajorGridSize) + 1) * axisConfig.xMajorGridSize;
+        yMin = (Math.floor(yMin / axisConfig.yMajorGridSize) - 1) * axisConfig.yMajorGridSize;
+        yMax = (Math.ceil(yMax / axisConfig.yMajorGridSize) + 1) * axisConfig.yMajorGridSize;
+      } else {
+        // Clipboard images fit the copied content. Give zero-width/height
+        // selections a minimal world-space extent so transforms stay finite.
+        if (Math.abs(xMax - xMin) < 1e-9) {
+          const halfRange = Math.max(axisConfig.xGridSize, 0.001) / 2;
+          xMin -= halfRange;
+          xMax += halfRange;
+        }
+        if (Math.abs(yMax - yMin) < 1e-9) {
+          const halfRange = Math.max(axisConfig.yGridSize, 0.001) / 2;
+          yMin -= halfRange;
+          yMax += halfRange;
+        }
+      }
     }
 
     const xRange = xMax - xMin;
@@ -1153,7 +1377,7 @@ export function useWaveform() {
     const chartWidth = width - 2 * padding;
     const chartHeight = plotHeight - 2 * padding;
     const legendGroups = includeLegend
-      ? groups.filter(group => group.visible && (group.segments.some(id => segments.some(segment => segment.id === id)) || !!group.parametric))
+      ? exportGroups.filter(group => group.visible && (group.segments.some(id => exportSegments.some(segment => segment.id === id)) || !!group.parametric))
       : [];
     const legendLayout = layoutSvgLegend(legendGroups, chartWidth);
     const legendGap = legendLayout.height > 0 ? 24 : 0;
@@ -1195,17 +1419,27 @@ export function useWaveform() {
 
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <!-- 背景 -->
-  <rect width="${width}" height="${height}" fill="white"/>
-
-  <!-- 次网格线 -->
-  <g id="grid-minor">
 `;
+    if (includeBackground) {
+      svg += `  <!-- 背景 -->
+  <rect width="${width}" height="${height}" fill="white"/>
+`;
+    }
 
     // Integer-index loops avoid float accumulation error
     const isMajor = (v: number, major: number) =>
       Math.abs(v / major - Math.round(v / major)) < 1e-6;
 
+    const xMajorIndexStart = Math.ceil(xMin / axisConfig.xMajorGridSize);
+    const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
+    const yMajorIndexStart = Math.ceil(yMin / axisConfig.yMajorGridSize);
+    const yMajorIndexEnd = Math.floor(yMax / axisConfig.yMajorGridSize + 1e-9);
+
+    if (includeGrid) {
+    svg += `
+  <!-- 次网格线 -->
+  <g id="grid-minor">
+`;
     // Vertical minor grid lines
     for (let i = Math.ceil(xMin / axisConfig.xGridSize); i * axisConfig.xGridSize <= xMax + 1e-9; i++) {
       const x = i * axisConfig.xGridSize;
@@ -1229,23 +1463,23 @@ export function useWaveform() {
 `;
 
     // Vertical major grid lines
-    const xMajorIndexStart = Math.ceil(xMin / axisConfig.xMajorGridSize);
-    const xMajorIndexEnd = Math.floor(xMax / axisConfig.xMajorGridSize + 1e-9);
     for (let i = xMajorIndexStart; i <= xMajorIndexEnd; i++) {
       const screenX = worldToSVG({ x: i * axisConfig.xMajorGridSize, y: 0 }).x;
       svg += `    <line ${MAJOR_STYLE} x1="${screenX.toFixed(2)}" y1="${padding}" x2="${screenX.toFixed(2)}" y2="${plotHeight - padding}"/>\n`;
     }
 
     // Horizontal major grid lines
-    const yMajorIndexStart = Math.ceil(yMin / axisConfig.yMajorGridSize);
-    const yMajorIndexEnd = Math.floor(yMax / axisConfig.yMajorGridSize + 1e-9);
     for (let i = yMajorIndexStart; i <= yMajorIndexEnd; i++) {
       const screenY = worldToSVG({ x: 0, y: i * axisConfig.yMajorGridSize }).y;
       svg += `    <line ${MAJOR_STYLE} x1="${padding}" y1="${screenY.toFixed(2)}" x2="${width - padding}" y2="${screenY.toFixed(2)}"/>\n`;
     }
 
     svg += `  </g>
+`;
+    }
 
+    if (includeAxes) {
+    svg += `
   <!-- 坐标轴 -->
   <g id="axes">
 `;
@@ -1294,13 +1528,16 @@ export function useWaveform() {
     <text ${UNIT_TEXT_STYLE} x="${(width - padding + 20).toFixed(2)}" y="${(originY + 5).toFixed(2)}" text-anchor="middle">${escapeXml(axisConfig.xUnit)}</text>
     <text ${UNIT_TEXT_STYLE} x="${(originX - 25).toFixed(2)}" y="${(padding - 20).toFixed(2)}" text-anchor="middle">${escapeXml(axisConfig.yUnit)}</text>
   </g>
+`;
+    }
 
+    svg += `
   <!-- 波形（按组分层，Visio中取消组合可逐级拆到单条线段） -->
   <g id="waveforms">
 `;
 
     // Orphaned legacy segments sit below every named group.
-    const orphanSegments = segments.filter(s => !groups.some(g => g.id === s.groupId));
+    const orphanSegments = exportSegments.filter(s => !exportGroups.some(g => g.id === s.groupId));
     if (orphanSegments.length > 0) {
       svg += `    <g id="wave-group-ungrouped">\n`;
       orphanSegments.forEach(segment => {
@@ -1310,9 +1547,9 @@ export function useWaveform() {
     }
 
     // groups[0] is topmost, so SVG paints the list in reverse order.
-    groupsBottomToTop(groups).forEach((group) => {
+    groupsBottomToTop(exportGroups).forEach((group) => {
       if (!group.visible) return;
-      const groupSegments = segments.filter(s => s.groupId === group.id);
+      const groupSegments = exportSegments.filter(s => s.groupId === group.id);
       if (groupSegments.length === 0 && !group.parametric) return;
 
       // Per-group style: width, dash pattern, opacity
@@ -1322,7 +1559,7 @@ export function useWaveform() {
       const opacity = group.opacity ?? 1;
       const opacityAttr = opacity < 1 ? ` stroke-opacity="${opacity}"` : '';
 
-      const groupNumber = groups.findIndex(item => item.id === group.id) + 1;
+      const groupNumber = exportGroups.findIndex(item => item.id === group.id) + 1;
       svg += `    <g id="wave-group-${groupNumber}">\n      <title>${escapeXml(group.name)}</title>\n`;
       if (group.parametric?.kind === 'sine' && groupSegments.length === 0) {
           svg += `      <path d="${generateParametricPath(group.parametric)}" stroke="${group.color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${opacityAttr} fill="none"/>\n`;
@@ -1343,73 +1580,115 @@ export function useWaveform() {
       });
     }
 
+    // Painted last so annotations remain above the waveform layer and stay as
+    // native, editable SVG text elements.
+    svg += renderSvgAnnotations(exportAnnotations, worldToSVG, pxPerUnit);
+
     svg += renderSvgLegend(legendLayout, padding, plotHeight);
     svg += `</svg>`;
 
     return { svg, width, height };
-  }, [segments, groups, cursors, axisConfig]);
+  }, [segments, groups, cursors, annotations, selectedSegments, selectedAnnotations, axisConfig]);
 
-  const exportToSVG = useCallback((): string => buildSVG({ includeLegend: true, includeCursors: includeCursorsInExport }).svg, [buildSVG, includeCursorsInExport]);
+  const buildExportSVG = useCallback((options: Omit<ImageExportOptions, 'format'>): string => (
+    buildSVG({
+      includeGrid: options.includeGrid,
+      includeAxes: options.includeAxes,
+      includeLegend: options.includeLegend,
+      includeCursors: options.includeCursors,
+    }).svg
+  ), [buildSVG]);
 
-  // Download as SVG
-  const downloadSVG = useCallback((filename: string = 'waveform.svg') => {
-    const svg = exportToSVG();
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const rasterizeSvgToPng = useCallback((svg: string, width: number, height: number, scaleFactor = 3): Promise<Blob> => (
+    new Promise((resolve, reject) => {
+      const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(width * scaleFactor);
+        canvas.height = Math.round(height * scaleFactor);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(svgUrl);
+          reject(new Error('Canvas 2D context unavailable'));
+          return;
+        }
+        ctx.scale(scaleFactor, scaleFactor);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(svgUrl);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG encoding failed')), 'image/png');
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(svgUrl);
+        reject(new Error('SVG rasterization failed'));
+      };
+      img.src = svgUrl;
+    })
+  ), []);
+
+  const downloadImage = useCallback(async (options: ImageExportOptions, filename?: string) => {
+    const built = buildSVG({
+      includeGrid: options.includeGrid,
+      includeAxes: options.includeAxes,
+      includeLegend: options.includeLegend,
+      includeCursors: options.includeCursors,
+    });
+    const blob = options.format === 'svg'
+      ? new Blob([built.svg], { type: 'image/svg+xml;charset=utf-8' })
+      : await rasterizeSvgToPng(built.svg, built.width, built.height);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = filename;
+    link.download = filename ?? `waveform.${options.format}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [exportToSVG]);
+  }, [buildSVG, rasterizeSvgToPng]);
+
+  // Download as SVG
+  const downloadSVG = useCallback((filename: string = 'waveform.svg') => downloadImage({ format: 'svg', includeGrid: true, includeAxes: true, includeLegend: true, includeCursors: includeCursorsInExport }, filename), [downloadImage, includeCursorsInExport]);
 
   // Download as PNG (hi-res, 3x render by default)
-  const downloadPNG = useCallback((filename: string = 'waveform.png', scaleFactor: number = 3) => {
-    const { svg, width, height } = buildSVG({ includeLegend: true, includeCursors: includeCursorsInExport });
-    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const svgUrl = URL.createObjectURL(svgBlob);
+  const downloadPNG = useCallback((filename: string = 'waveform.png') => downloadImage({ format: 'png', includeGrid: true, includeAxes: true, includeLegend: true, includeCursors: includeCursorsInExport }, filename), [downloadImage, includeCursorsInExport]);
 
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(width * scaleFactor);
-      canvas.height = Math.round(height * scaleFactor);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { URL.revokeObjectURL(svgUrl); return; }
-      ctx.scale(scaleFactor, scaleFactor);
-      ctx.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(svgUrl);
-
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        const pngUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = pngUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(pngUrl);
-      }, 'image/png');
+  const copySelectedToSystemClipboard = useCallback(async () => {
+    if ((selectedSegments.size === 0 && selectedAnnotations.size === 0) || typeof navigator.clipboard?.write !== 'function' || typeof ClipboardItem === 'undefined') return false;
+    const clipboardOptions: SvgBuildOptions = {
+      alignBoundsToGrid: false,
+      contentPadding: 12,
+      includeBackground: false,
+      includeGrid: false,
+      includeAxes: false,
+      includeLegend: false,
+      includeCursors: false,
+      includeAnnotations: true,
+      selectionOnly: true,
     };
-    img.onerror = () => URL.revokeObjectURL(svgUrl);
-    img.src = svgUrl;
-  }, [buildSVG, includeCursorsInExport]);
+    const svgBuilt = buildSVG(clipboardOptions);
+    const pngBuilt = buildSVG({ ...clipboardOptions, includeBackground: true });
+    const clipboardData: Record<string, Blob> = {
+      'image/svg+xml': new Blob([svgBuilt.svg], { type: 'image/svg+xml' }),
+      'image/png': await rasterizeSvgToPng(pngBuilt.svg, pngBuilt.width, pngBuilt.height, 2),
+    };
+    await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
+    return true;
+  }, [buildSVG, rasterizeSvgToPng, selectedAnnotations.size, selectedSegments.size]);
 
   // Export the waveform data as a JSON object
   const exportData = useCallback(() => {
     return {
-      version: '2.0',
+      version: '2.1',
       exportTime: new Date().toISOString(),
       axisConfig,
       viewport,
       groups,
       segments,
       cursors,
+      annotations,
     };
-  }, [axisConfig, viewport, groups, segments, cursors]);
+  }, [axisConfig, viewport, groups, segments, cursors, annotations]);
 
   // Download as JSON
   const downloadJSON = useCallback((filename: string = 'waveform.json') => {
@@ -1433,6 +1712,7 @@ export function useWaveform() {
     groups?: WaveformGroup[];
     segments?: LineSegment[];
     cursors?: unknown;
+    annotations?: unknown;
   }) => {
     // Import the axis config if present, keeping only known fields
     if (data.axisConfig) {
@@ -1450,19 +1730,23 @@ export function useWaveform() {
     const nextGroups = data.groups && data.segments ? data.groups : groupsRef.current;
     const nextSegments = data.groups && data.segments ? data.segments : segmentsRef.current;
     const nextCursors = sanitizeAxisCursors(data.cursors);
+    const nextAnnotations = sanitizeAnnotations(data.annotations);
     groupsRef.current = nextGroups;
     segmentsRef.current = nextSegments;
     cursorsRef.current = nextCursors;
+    annotationsRef.current = nextAnnotations;
     setGroups(nextGroups);
     setSegments(nextSegments);
     setCursors(nextCursors);
+    setAnnotations(nextAnnotations);
     
     // Clear selection state
     setSelectedGroup(null);
     setSelectedSegments(new Set());
     setActiveSegment(null);
-    pushHistoryState({ segments: nextSegments, groups: nextGroups, cursors: nextCursors });
-  }, [pushHistoryState]);
+    setSelectedAnnotation(null);
+    pushHistoryState({ segments: nextSegments, groups: nextGroups, cursors: nextCursors, annotations: nextAnnotations });
+  }, [pushHistoryState, setAxisConfig, setSelectedAnnotation]);
 
   // Generate common waveforms.
   // For square/trapezoid, params.complementary additionally creates the complementary
@@ -1609,6 +1893,9 @@ export function useWaveform() {
     segments,
     groups,
     cursors,
+    annotations,
+    selectedAnnotation,
+    selectedAnnotations,
     includeCursorsInExport,
     selectedSegments,
     axisConfig,
@@ -1626,17 +1913,21 @@ export function useWaveform() {
     canUndo,
     canRedo,
     copyingSegments,
+    copyingAnnotations,
     copyOffset,
     isDraggingSelected,
     dragStartPoint,
     isCopyPreview,
     copyPreviewOffset,
     clipboardSegments,
+    clipboardAnnotations,
     saveToHistory,
     canvasRef,
     setAxisConfig,
     setMode,
     setSelectedGroup,
+    setSelectedAnnotation,
+    selectAnnotation,
     setActiveSegment,
     setIsDrawing,
     setDrawStart,
@@ -1677,6 +1968,7 @@ export function useWaveform() {
     deleteSelectedSegments,
     deleteSegmentsInRect,
     moveSelectedSegments,
+    moveSelectedAnnotations,
     finishMoveSelectedSegments,
     copyToClipboard,
     enterCopyPreview,
@@ -1684,6 +1976,11 @@ export function useWaveform() {
     confirmCopyPreview,
     cancelCopyPreview,
     pasteClipboard,
+    createAnnotation,
+    updateAnnotation,
+    commitAnnotationChange,
+    deleteAnnotation,
+    deleteSelectedContent,
     calculateExpression,
     calculateLogicExpression,
     clearAll,
@@ -1691,6 +1988,9 @@ export function useWaveform() {
     redo,
     downloadSVG,
     downloadPNG,
+    buildExportSVG,
+    downloadImage,
+    copySelectedToSystemClipboard,
     downloadJSON,
     importData,
     generateWaveform,

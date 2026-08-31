@@ -73,6 +73,7 @@ export const CursorManager: React.FC<CursorManagerProps> = ({
                 <div className="flex min-w-0 items-center gap-1">
                   <NumberInput
                     value={cursor.value}
+                    displayPrecision={3}
                     step="any"
                     onValueChange={value => onUpdate(cursor.id, value)}
                     onValueCommit={onCommit}

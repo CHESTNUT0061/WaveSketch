@@ -1,14 +1,14 @@
 {
   "name": "wavesketch",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:offline": "tsc -b && vite build && node scripts/build-offline-preview.mjs",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test src/lib/digitalLogic.test.ts src/lib/svgLegend.test.ts src/lib/waveformGeometry.test.ts src/lib/axisCursor.test.ts src/lib/waveformDeletion.test.ts src/lib/waveformGeneration.test.ts src/lib/waveformArithmetic.test.ts src/lib/siteCounter.test.ts src/lib/panConstraint.test.ts src/lib/floatingOverlay.test.ts src/lib/responsiveLayout.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/axisConfig.test.ts src/lib/annotation.test.ts src/lib/digitalLogic.test.ts src/lib/svgLegend.test.ts src/lib/waveformGeometry.test.ts src/lib/axisCursor.test.ts src/lib/waveformDeletion.test.ts src/lib/waveformGeneration.test.ts src/lib/waveformArithmetic.test.ts src/lib/siteCounter.test.ts src/lib/panConstraint.test.ts src/lib/floatingOverlay.test.ts src/lib/responsiveLayout.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

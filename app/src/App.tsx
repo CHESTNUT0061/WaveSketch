@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { useWaveform, BASE_SCALE, MIN_SCALE, MAX_SCALE } from '@/hooks/useWaveform';
+import { useWaveform, BASE_SCALE, MIN_SCALE, MAX_SCALE, type ImageExportOptions } from '@/hooks/useWaveform';
 import { WaveformCanvas } from '@/components/WaveformCanvas';
 import { Toolbar } from '@/components/Toolbar';
 import { Button } from '@/components/ui/button';
-import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Copy, ClipboardPaste, FolderOpen, Move, HelpCircle } from 'lucide-react';
+import { Pencil, Edit2, Trash2, GripHorizontal, Undo2, Redo2, MousePointer2, Download, FileJson, Image, Hand, Copy, ClipboardPaste, FolderOpen, Move, HelpCircle, Type } from 'lucide-react';
 import type { ParametricSine, Point, ToolMode, ZoomAxis } from '@/types/waveform';
 import { useI18n } from '@/i18n';
 import { CursorManager } from '@/components/CursorManager';
@@ -12,6 +12,7 @@ import { AppStatusBar } from '@/components/AppStatusBar';
 import { AxisSettingsPanel } from '@/components/AxisSettingsPanel';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { findSegmentHit, findWaveformHits } from '@/lib/waveformGeometry';
+import { getAnnotationBounds } from '@/lib/annotation';
 import { findAxisCursorHit, snapCursorValue } from '@/lib/axisCursor';
 import { constrainPanAxis, constrainPanDelta, selectPanAxis, type PanConstraint } from '@/lib/panConstraint';
 import {
@@ -24,12 +25,91 @@ import {
 } from '@/lib/floatingOverlay';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type SineHandle = 'move' | 'amplitude' | 'period';
 
 const ZOOM_OVERLAY_COLLAPSED_KEY = 'wavesketch.ui.zoomOverlayCollapsed';
 const ZOOM_OVERLAY_POSITION_KEY = 'wavesketch.ui.zoomOverlayPosition';
 const PAN_CONSTRAINT_KEY = 'wavesketch.ui.panConstraint';
+
+interface ExportImageDialogProps {
+  open: boolean;
+  options: ImageExportOptions;
+  previewSvg: string;
+  onOpenChange: (open: boolean) => void;
+  onChange: (patch: Partial<ImageExportOptions>) => void;
+  onExport: () => void;
+}
+
+const ExportImageDialog: React.FC<ExportImageDialogProps> = ({ open, options, previewSvg, onOpenChange, onChange, onExport }) => {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewSrc = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(previewSvg)}`;
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="w-[calc(100vw-2rem)] max-w-none max-h-[92vh] overflow-y-auto p-4 sm:p-6 md:w-[min(1100px,calc(100vw-2rem))]"
+        style={{ width: 'min(1100px, calc(100vw - 32px))', maxWidth: 'none' }}
+      >
+        <DialogHeader>
+          <DialogTitle>导出图片</DialogTitle>
+          <DialogDescription>统一设置导出内容，并预览最终图像。</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="flex min-h-[240px] items-center justify-center overflow-auto rounded-lg border bg-slate-50 p-2 md:h-[420px] md:min-h-0">
+            <button type="button" className="flex max-h-[52vh] max-w-full cursor-zoom-in items-center justify-center" onClick={() => setPreviewOpen(true)} title="点击放大预览">
+              <img src={previewSrc} alt="导出图片预览" className="max-h-[50vh] max-w-full object-contain" />
+            </button>
+          </div>
+          <div className="space-y-4 rounded-lg border p-3 text-sm">
+            <div className="font-medium">导出选项</div>
+            <label className="flex items-center gap-2">
+              <Checkbox checked={options.includeGrid} onCheckedChange={(checked) => onChange({ includeGrid: checked === true })} />
+              <span>背景网格</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Checkbox checked={options.includeAxes} onCheckedChange={(checked) => onChange({ includeAxes: checked === true })} />
+              <span>坐标轴</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Checkbox checked={options.includeLegend} onCheckedChange={(checked) => onChange({ includeLegend: checked === true })} />
+              <span>图例</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Checkbox checked={options.includeCursors} onCheckedChange={(checked) => onChange({ includeCursors: checked === true })} />
+              <span>Cursor</span>
+            </label>
+            <div className="space-y-2">
+              <div className="text-xs text-[var(--ws-muted)]">格式</div>
+              <div className="grid grid-cols-2 gap-2">
+                {(['png', 'svg'] as const).map(format => (
+                  <button key={format} type="button" className={`rounded-md border px-3 py-2 uppercase ${options.format === format ? 'border-primary bg-primary/10 text-primary' : 'bg-white'}`} onClick={() => onChange({ format })}>{format}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={onExport}><Download className="size-4" />导出 {options.format.toUpperCase()}</Button>
+        </DialogFooter>
+      </DialogContent>
+      </Dialog>
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent
+          className="w-[calc(100vw-1rem)] max-w-none max-h-[94vh] p-3 sm:p-5"
+          style={{ width: 'min(1400px, calc(100vw - 16px))', maxWidth: 'none' }}
+        >
+          <DialogTitle className="sr-only">放大导出预览</DialogTitle>
+          <div className="flex max-h-[88vh] min-h-[40vh] items-center justify-center overflow-auto rounded-lg bg-slate-50 p-2 md:min-h-[60vh]">
+            <img src={previewSrc} alt="放大导出图片预览" className="max-h-[84vh] max-w-full object-contain" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
 
 function readStoredZoomOverlayPosition(): unknown {
   try {
@@ -300,6 +380,9 @@ function App() {
     segments,
     groups,
     cursors,
+    annotations,
+    selectedAnnotation,
+    selectedAnnotations,
     includeCursorsInExport,
     axisConfig,
     viewport,
@@ -316,16 +399,20 @@ function App() {
     canUndo,
     canRedo,
     copyingSegments,
+    copyingAnnotations,
     copyOffset,
     isDraggingSelected,
     dragStartPoint,
     isCopyPreview,
     copyPreviewOffset,
     clipboardSegments,
+    clipboardAnnotations,
     canvasRef,
     setAxisConfig,
     setMode,
     setSelectedGroup,
+    setSelectedAnnotation,
+    selectAnnotation,
     setActiveSegment,
     setIsDrawing,
     setDrawStart,
@@ -360,11 +447,11 @@ function App() {
     toggleSegmentSelection,
     clearSegmentSelection,
     selectSegmentsInRect,
-    deleteSelectedSegments,
     deleteSegmentsInRect,
     setIsDraggingSelected,
     saveToHistory,
     moveSelectedSegments,
+    moveSelectedAnnotations,
     finishMoveSelectedSegments,
     copyToClipboard,
     enterCopyPreview,
@@ -372,14 +459,20 @@ function App() {
     confirmCopyPreview,
     cancelCopyPreview,
     pasteClipboard,
+    createAnnotation,
+    updateAnnotation,
+    commitAnnotationChange,
+    deleteAnnotation,
+    deleteSelectedContent,
     selectedSegments,
     calculateExpression,
     calculateLogicExpression,
     clearAll,
     undo,
     redo,
-    downloadSVG,
-    downloadPNG,
+    buildExportSVG,
+    downloadImage,
+    copySelectedToSystemClipboard,
     downloadJSON,
     importData,
     generateWaveform,
@@ -388,6 +481,32 @@ function App() {
     extendGroupMultiPhase,
     worldToScreen,
   } = useWaveform();
+
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportOptions, setExportOptions] = useState<ImageExportOptions>({
+    format: 'png',
+    includeGrid: true,
+    includeAxes: true,
+    includeLegend: true,
+    includeCursors: includeCursorsInExport,
+  });
+  const exportPreviewSvg = buildExportSVG(exportOptions);
+  const updateExportOptions = useCallback((patch: Partial<ImageExportOptions>) => {
+    setExportOptions(previous => ({ ...previous, ...patch }));
+  }, []);
+  const handleExportImage = useCallback(() => {
+    void downloadImage(exportOptions);
+    setExportDialogOpen(false);
+  }, [downloadImage, exportOptions]);
+  const handleCopyWaveforms = useCallback(async () => {
+    copyToClipboard();
+    try {
+      const copied = await copySelectedToSystemClipboard();
+      if (!copied) alert(t('copySystemUnavailable'));
+    } catch {
+      alert(t('copySystemUnavailable'));
+    }
+  }, [copySelectedToSystemClipboard, copyToClipboard, t]);
 
   React.useEffect(() => {
     try { localStorage.setItem('wavesketch.ui.cursorSnap', String(cursorSnapEnabled)); } catch { /* ignore */ }
@@ -564,23 +683,16 @@ function App() {
   // Keyboard shortcuts: Ctrl+C/V copy & paste, Ctrl+Z/Y undo & redo,
   // Delete removes the selection, Escape backs out of the current action.
   React.useEffect(() => {
-    const isTyping = (e: KeyboardEvent) => {
+    const isTyping = (e: Event) => {
       const target = e.target as HTMLElement;
       return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable;
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+C / Cmd+C: copy selected segments to the clipboard
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && mode === 'select' && selectedSegments.size > 0) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && mode === 'select' && (selectedSegments.size > 0 || selectedAnnotations.size > 0) && !isTyping(e)) {
         e.preventDefault();
-        copyToClipboard();
-      }
-      // Ctrl+V / Cmd+V: start the paste preview
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && mode === 'select' && clipboardSegments.length > 0 && !isCopyPreview) {
-        e.preventDefault();
-        // Use the current mouse position as the paste origin
-        const originPoint = currentMouse || { x: 0, y: 0 };
-        enterCopyPreview(originPoint);
+        void handleCopyWaveforms();
       }
       // Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo (not while typing in an input)
       if ((e.ctrlKey || e.metaKey) && !isTyping(e)) {
@@ -617,22 +729,36 @@ function App() {
         } else if (mode !== 'select') {
           e.preventDefault();
           setMode('select');
+        } else if (selectedAnnotation) {
+          e.preventDefault();
+          setSelectedAnnotation(null);
         } else if (selectedSegments.size > 0) {
           e.preventDefault();
           clearSegmentSelection();
         }
       }
       // Delete/Backspace removes selected segments (ignored while an input has focus)
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSegments.size > 0 && !isCopyPreview) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedSegments.size > 0 || selectedAnnotations.size > 0) && !isCopyPreview) {
         if (isTyping(e)) return;
         e.preventDefault();
-        deleteSelectedSegments();
+        deleteSelectedContent();
       }
     };
 
+    const handlePaste = (e: ClipboardEvent) => {
+      if (mode !== 'select' || isCopyPreview || isTyping(e)) return;
+      if (clipboardSegments.length === 0 && clipboardAnnotations.length === 0) return;
+      e.preventDefault();
+      enterCopyPreview(currentMouse || { x: 0, y: 0 });
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mode, selectedSegments.size, isCopyPreview, currentMouse, clipboardSegments.length, copyToClipboard, enterCopyPreview, confirmCopyPreview, cancelCopyPreview, deleteSelectedSegments, undo, redo, isDrawing, marquee, setIsDrawing, setDrawStart, setCurrentMouse, setMode, clearSegmentSelection]);
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [mode, selectedSegments.size, selectedAnnotations.size, selectedAnnotation, isCopyPreview, currentMouse, clipboardSegments.length, clipboardAnnotations.length, handleCopyWaveforms, enterCopyPreview, confirmCopyPreview, cancelCopyPreview, deleteSelectedContent, undo, redo, isDrawing, marquee, setIsDrawing, setDrawStart, setCurrentMouse, setMode, setSelectedAnnotation, clearSegmentSelection]);
 
   // Import a JSON file
   const handleImportJSON = useCallback((file: File) => {
@@ -697,7 +823,7 @@ function App() {
     setViewport({ centerX: 0, centerY: 0, scaleX: BASE_SCALE, scaleY: BASE_SCALE });
   }, [setViewport]);
 
-  // Fit to content: zoom the viewport to enclose all visible waveforms (10% margin)
+  // Fit to content: enclose visible waveforms and world-anchored annotations.
   const fitToContent = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -707,7 +833,7 @@ function App() {
       return !g || g.visible;
     });
     const visibleParametric = groups.filter(group => group.visible && group.parametric?.kind === 'sine');
-    if (visibleSegments.length === 0 && visibleParametric.length === 0) return;
+    if (visibleSegments.length === 0 && visibleParametric.length === 0 && annotations.length === 0) return;
 
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     visibleSegments.forEach(s => {
@@ -724,6 +850,13 @@ function App() {
       yMin = Math.min(yMin, sine.offset - Math.abs(sine.amplitude));
       yMax = Math.max(yMax, sine.offset + Math.abs(sine.amplitude));
     });
+    annotations.forEach(annotation => {
+      const bounds = getAnnotationBounds(annotation);
+      xMin = Math.min(xMin, bounds.xMin);
+      xMax = Math.max(xMax, bounds.xMax);
+      yMin = Math.min(yMin, bounds.yMin);
+      yMax = Math.max(yMax, bounds.yMax);
+    });
 
     const xRange = Math.max(xMax - xMin, 0.5); // avoid division by zero for single points / flat lines
     const yRange = Math.max(yMax - yMin, 0.5);
@@ -735,13 +868,14 @@ function App() {
       scaleX: clamp(canvas.clientWidth / (xRange * 1.2)),
       scaleY: clamp(canvas.clientHeight / (yRange * 1.2)),
     });
-  }, [segments, groups, canvasRef, setViewport]);
+  }, [segments, groups, annotations, canvasRef, setViewport]);
 
   // Clear activeSegment when switching groups
   const handleSelectGroup = useCallback((groupId: string | null) => {
     setSelectedGroup(groupId);
+    setSelectedAnnotation(null);
     setActiveSegment(null); // clear the highlight
-  }, [setSelectedGroup, setActiveSegment]);
+  }, [setSelectedGroup, setSelectedAnnotation, setActiveSegment]);
 
   // Mouse position in world coordinates
   const getMouseWorldPos = useCallback((e: React.MouseEvent): Point => {
@@ -966,7 +1100,12 @@ function App() {
       return;
     }
 
-    if (mode === 'draw') {
+    if (mode === 'text') {
+      const worldPos = snapToGrid(getMouseWorldPos(e));
+      clearSegmentSelection();
+      setSelectedGroup(null);
+      createAnnotation(worldPos, t('defaultAnnotationText'));
+    } else if (mode === 'draw') {
       const worldPos = getMouseWorldPos(e);
       const snapped = snapToGrid(worldPos);
       setIsDrawing(true);
@@ -1059,6 +1198,7 @@ function App() {
         setMoveOffset({ x: 0, y: 0 }); // reset the offset
       }
     } else if (mode === 'select') {
+      if (!e.shiftKey) setSelectedAnnotation(null);
       // Select mode: click to select, Shift+click to multi-select (across groups)
       if (isCopyPreview) {
         // In paste preview, a click confirms the paste
@@ -1093,7 +1233,7 @@ function App() {
         setMarquee({ start: rawPos, end: rawPos });
       }
     }
-  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, checkCursorHit, deleteSegment, selectedGroup, groups, worldToScreen, canvasRef, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY, setActiveSegment]);
+  }, [mode, getMouseWorldPos, snapToGrid, setIsDrawing, setDrawStart, setCurrentMouse, checkSegmentHit, checkCursorHit, deleteSegment, selectedGroup, groups, worldToScreen, canvasRef, setMovingGroup, setMoveStartPoint, toggleSegmentSelection, clearSegmentSelection, checkControlPointHit, checkEndpointHit, checkMidpointHit, setDraggingControl, updateControlPoint, isCopyPreview, confirmCopyPreview, selectedSegments, setIsDraggingSelected, setDragStartPoint, spaceHeld, viewport.centerX, viewport.centerY, setActiveSegment, setSelectedGroup, setSelectedAnnotation, createAnnotation, t]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Canvas panning in progress
@@ -1332,6 +1472,7 @@ function App() {
     delete: t('tipDelete'),
     moveGroup: t('tipMoveGroup'),
     select: t('tipSelect'),
+    text: t('tipText'),
     undo: t('tipUndo'),
     redo: t('tipRedo'),
     svg: t('tipSvg'),
@@ -1349,6 +1490,7 @@ function App() {
             <ToolButton toolMode="select" label={t('toolSelect')} icon={MousePointer2} tooltip={TOOLTIPS.select} active={mode === 'select'} onSelect={setMode} />
             <ToolButton toolMode="draw" label={t('toolDraw')} icon={Pencil} tooltip={TOOLTIPS.draw} active={mode === 'draw'} onSelect={setMode} />
             <ToolButton toolMode="edit" label={t('toolEdit')} icon={Edit2} tooltip={TOOLTIPS.edit} active={mode === 'edit'} onSelect={setMode} />
+            <ToolButton toolMode="text" label={t('toolText')} icon={Type} tooltip={TOOLTIPS.text} active={mode === 'text'} onSelect={setMode} />
             <ToolButton toolMode="delete" label={t('toolDelete')} icon={Trash2} tooltip={TOOLTIPS.delete} active={mode === 'delete'} onSelect={setMode} />
             <ToolButton toolMode="moveGroup" label={t('toolMoveGroup')} icon={GripHorizontal} tooltip={TOOLTIPS.moveGroup} active={mode === 'moveGroup'} onSelect={setMode} />
             <CursorManager
@@ -1366,12 +1508,12 @@ function App() {
               onSnapEnabledChange={setCursorSnapEnabled}
             />
             <TooltipButton tooltip={t('tipCopy')}>
-              <Button variant="outline" size="sm" onClick={copyToClipboard} disabled={selectedSegments.size === 0} className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => void handleCopyWaveforms()} disabled={selectedSegments.size === 0 && selectedAnnotations.size === 0} className="flex items-center gap-1">
                 <Copy className="w-4 h-4" />{t('btnCopy')}
               </Button>
             </TooltipButton>
             <TooltipButton tooltip={t('tipPaste')}>
-              <Button variant="outline" size="sm" onClick={pasteClipboard} disabled={clipboardSegments.length === 0} className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={pasteClipboard} disabled={clipboardSegments.length === 0 && clipboardAnnotations.length === 0} className="flex items-center gap-1">
                 <ClipboardPaste className="w-4 h-4" />{t('btnPaste')}
               </Button>
             </TooltipButton>
@@ -1409,8 +1551,7 @@ function App() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-44">
-                <DropdownMenuItem onSelect={() => downloadSVG()}><Image className="mr-2 size-4" />SVG</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => downloadPNG()}><Image className="mr-2 size-4" />PNG</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setExportOptions(previous => ({ ...previous, includeCursors: includeCursorsInExport })); setExportDialogOpen(true); }}><Image className="mr-2 size-4" />导出图片</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => downloadJSON()}><FileJson className="mr-2 size-4" />{t('actionExport')} JSON</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => document.getElementById('import-json')?.click()}><Download className="mr-2 size-4" />{t('actionImport')} JSON</DropdownMenuItem>
               </DropdownMenuContent>
@@ -1477,7 +1618,7 @@ function App() {
                     </div>
                     <div className="flex shrink-0 items-center gap-1 border-l border-[var(--ws-border)] pl-2">
                       <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={resetViewport}>{t('reset')}</Button>
-                      <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={fitToContent} disabled={segments.length === 0 && !groups.some(group => group.visible && group.parametric?.kind === 'sine')}>{t('fitContent')}</Button>
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-sm whitespace-nowrap" onClick={fitToContent} disabled={segments.length === 0 && annotations.length === 0 && !groups.some(group => group.visible && group.parametric?.kind === 'sine')}>{t('fitContent')}</Button>
                       <Button
                         variant={mode === 'pan' ? 'default' : 'ghost'}
                         size="sm"
@@ -1581,6 +1722,9 @@ function App() {
                 segments={segments}
                 groups={groups}
                 cursors={cursors}
+                annotations={annotations}
+                selectedAnnotations={selectedAnnotations}
+                viewport={viewport}
                 selectedSegments={selectedSegments}
                 axisConfig={axisConfig}
                 mode={mode}
@@ -1591,6 +1735,7 @@ function App() {
                 currentMouse={currentMouse}
                 draggingControl={draggingControl}
                 copyingSegments={copyingSegments}
+                copyingAnnotations={copyingAnnotations}
                 copyOffset={copyOffset}
                 worldToScreen={worldToScreen}
                 screenToWorld={screenToWorld}
@@ -1606,6 +1751,14 @@ function App() {
                 cursorOverride={hoveredCursorAxis ? (hoveredCursorAxis === 'x' ? 'ew-resize' : 'ns-resize') : undefined}
                 selectionRect={marquee}
                 canvasRef={canvasRef}
+                onSelectAnnotation={(id, additive) => {
+                  selectAnnotation(id, additive);
+                  if (!additive) clearSegmentSelection();
+                }}
+                onMoveAnnotationSelection={moveSelectedAnnotations}
+                onUpdateAnnotation={updateAnnotation}
+                onCommitAnnotation={commitAnnotationChange}
+                onDeleteAnnotation={deleteAnnotation}
               />
             </div>
 
@@ -1641,6 +1794,14 @@ function App() {
       </main>
 
       <AppStatusBar />
+      <ExportImageDialog
+        open={exportDialogOpen}
+        options={exportOptions}
+        previewSvg={exportPreviewSvg}
+        onOpenChange={setExportDialogOpen}
+        onChange={updateExportOptions}
+        onExport={handleExportImage}
+      />
     </div>
   );
 }

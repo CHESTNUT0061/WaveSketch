@@ -2,6 +2,34 @@
 
 All notable changes to WaveSketch are documented in this file.
 
+## [1.0.7] - 2026-08-31
+
+### Added
+
+- Added world-anchored text annotations with default Chinese/English text, waveform-matched colors, font family, font size, bold/italic, alignment, right-click settings, multiline editing, and live box sizing.
+- Added text annotation selection, Shift multi-select, rubber-band selection, movement, deletion, internal copy/paste, JSON persistence, and editable SVG text export.
+- Added a unified image export dialog with grid, axes, legend, Cursor, PNG/SVG format selection, larger responsive preview, and click-to-enlarge preview.
+- Added the recommended Analog Canvas link.
+
+### Changed
+
+- External copy now exports only the selected waveforms and text annotations, with tight content bounds and no grid, axes, legend, or Cursor. Regular copy keeps SVG and PNG representations for compatible destination applications.
+- Removed the separate Copy SVG action; the regular Copy action is now the single cross-application copy entry.
+- Ctrl+V now enters the same paste preview flow for selected text annotations and waveforms; pasted annotations remain independent editable objects.
+- Shift+Enter inserts a new line and moves the caret to it; Enter completes text editing.
+- Cursor display values are limited to three decimal places.
+- Axis/grid settings normalize minor and major grid values to a minimum of 0.001.
+- The delete tool's rubber-band action now removes fully-contained waveforms and text annotations in one undoable operation.
+- Responsive floating controls and drawers were adjusted for desktop, Pad, and phone layouts while preserving the existing canvas interaction model.
+
+### Fixed
+
+- Fixed text-editing caret placement and text boxes not expanding with long or multiline text.
+- Fixed unselected annotations being included in external copies.
+- Fixed internal copy/paste not carrying text annotations.
+- Fixed text annotations being omitted from delete-mode marquee selection.
+- Fixed negative grid values becoming valid again.
+
 ## [1.0.5] - 2026-08-04
 
 ### Fixed
