@@ -14,7 +14,7 @@ All notable changes to WaveSketch are documented in this file.
 ### Changed
 
 - External copy now exports only the selected waveforms and text annotations, with tight content bounds and no grid, axes, legend, or Cursor. Regular copy keeps SVG and PNG representations for compatible destination applications.
-- Removed the separate Copy SVG action; the regular Copy action is now the single cross-application copy entry.
+- Cross-application copy now provides image content for chat applications and SVG content for vector-capable targets.
 - Ctrl+V now enters the same paste preview flow for selected text annotations and waveforms; pasted annotations remain independent editable objects.
 - Shift+Enter inserts a new line and moves the caret to it; Enter completes text editing.
 - Cursor display values are limited to three decimal places.
